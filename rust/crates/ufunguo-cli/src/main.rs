@@ -1,3 +1,6 @@
+use ufunguo_core::{WALLET_NAME, description};
+
 fn main() {
-    println!("Hello, world!");
+    println!("{WALLET_NAME}");
+    println!("{}", description());
 }

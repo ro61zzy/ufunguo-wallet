@@ -1,5 +1,7 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+pub const WALLET_NAME: &str = "Ufunguo";
+
+pub fn description() -> &'static str {
+    "A transparent, non-custodial Bitcoin wallet"
 }
 
 #[cfg(test)]
@@ -7,8 +9,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn returns_wallet_description() {
+        assert_eq!(description(), "A transparent, non-custodial Bitcoin wallet");
     }
 }
