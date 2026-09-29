@@ -1,6 +1,6 @@
 mod keys;
 
-pub use keys::{generate_mnemonic, parse_mnemonic};
+pub use keys::{WalletKeys, generate_mnemonic, parse_mnemonic};
 
 pub const WALLET_NAME: &str = "Ufunguo";
 

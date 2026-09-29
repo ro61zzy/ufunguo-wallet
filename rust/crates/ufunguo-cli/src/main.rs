@@ -1,5 +1,6 @@
+use bitcoin::Network;
 use clap::{Parser, Subcommand};
-use ufunguo_core::{description, generate_mnemonic, parse_mnemonic};
+use ufunguo_core::{WalletKeys, description, generate_mnemonic, parse_mnemonic};
 use zeroize::Zeroize;
 
 #[derive(Parser)]
@@ -41,12 +42,23 @@ fn main() {
 fn create_wallet() {
     match generate_mnemonic() {
         Ok(mnemonic) => {
+            let wallet_keys = match WalletKeys::from_mnemonic(&mnemonic, Network::Regtest) {
+                Ok(keys) => keys,
+                Err(error) => {
+                    eprintln!("Failed to derive wallet keys: {error}");
+                    std::process::exit(1);
+                }
+            };
+
             println!("{}", description());
             println!();
             println!("Recovery phrase:");
             println!("{mnemonic}");
             println!();
             println!("WARNING: Store these words securely and never share them.");
+
+            println!("Network: {:?}", wallet_keys.network());
+            println!("Master fingerprint: {}", wallet_keys.master_fingerprint());
         }
         Err(error) => {
             eprintln!("Failed to create wallet: {error}");
@@ -69,10 +81,20 @@ fn restore_wallet() {
 
     match result {
         Ok(mnemonic) => {
+            let wallet_keys = match WalletKeys::from_mnemonic(&mnemonic, Network::Regtest) {
+                Ok(keys) => keys,
+                Err(error) => {
+                    eprintln!("Failed to derive wallet keys: {error}");
+                    std::process::exit(1);
+                }
+            };
+
             println!(
                 "Recovery phrase is valid: {} words detected.",
                 mnemonic.word_count()
             );
+            println!("Network: {:?}", wallet_keys.network());
+            println!("Master fingerprint: {}", wallet_keys.master_fingerprint());
         }
         Err(error) => {
             eprintln!("Invalid recovery phrase: {error}");
