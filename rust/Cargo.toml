@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/ufunguo-core",
+    "crates/ufunguo-cli",
+]
+resolver = "2"
