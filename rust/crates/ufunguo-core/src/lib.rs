@@ -1,3 +1,7 @@
+mod keys;
+
+pub use keys::generate_mnemonic;
+
 pub const WALLET_NAME: &str = "Ufunguo";
 
 pub fn description() -> &'static str {
