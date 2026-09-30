@@ -47,6 +47,10 @@ impl WalletKeys {
 
         self.master_xpriv.fingerprint(&secp)
     }
+
+    pub(crate) fn master_xpriv(&self) -> Xpriv {
+        self.master_xpriv
+    }
 }
 
 #[cfg(test)]

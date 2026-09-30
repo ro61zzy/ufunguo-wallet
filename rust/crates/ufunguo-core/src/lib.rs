@@ -1,6 +1,8 @@
 mod keys;
+mod wallet;
 
 pub use keys::{WalletKeys, generate_mnemonic, parse_mnemonic};
+pub use wallet::{CHANGE_PATH, RECEIVE_PATH, UfunguoWallet};
 
 pub const WALLET_NAME: &str = "Ufunguo";
 
