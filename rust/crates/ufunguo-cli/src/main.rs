@@ -5,6 +5,7 @@ use ufunguo_core::{
     parse_mnemonic,
 };
 use zeroize::Zeroize;
+const WALLET_DATABASE: &str = "ufunguo.sqlite";
 
 #[derive(Parser)]
 #[command(name = "ufunguo")]
@@ -108,10 +109,10 @@ fn derive_wallet_keys_or_exit(mnemonic: &bip39::Mnemonic) -> WalletKeys {
 }
 
 fn create_bip84_wallet_or_exit(wallet_keys: &WalletKeys) -> UfunguoWallet {
-    match UfunguoWallet::create(wallet_keys) {
+    match UfunguoWallet::open_or_create(wallet_keys, WALLET_DATABASE) {
         Ok(wallet) => wallet,
         Err(error) => {
-            eprintln!("Failed to create BIP84 wallet: {error}");
+            eprintln!("Failed to open BIP84 wallet: {error}");
             std::process::exit(1);
         }
     }
