@@ -1,11 +1,13 @@
 use std::path::Path;
 
 use bdk_wallet::{
-    Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet, Wallet,
+    Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
+    SignOptions, Wallet,
     chain::ChainPosition,
     descriptor::template::Bip84,
     error::CreateTxError,
     rusqlite::{self, Connection},
+    signer::SignerError,
 };
 use bitcoin::{Address, Amount, FeeRate, Network, OutPoint, Psbt, Txid};
 use thiserror::Error;
@@ -57,6 +59,15 @@ pub enum WalletError {
 
     #[error("failed to build transaction: {0}")]
     BuildTransaction(#[from] CreateTxError),
+
+    #[error("failed to sign PSBT: {0}")]
+    SignPsbt(String),
+
+    #[error("failed to finalize PSBT: {0}")]
+    FinalizePsbt(#[from] SignerError),
+
+    #[error("PSBT could not be completely finalized")]
+    IncompletePsbt,
 }
 
 pub struct UfunguoWallet {
@@ -201,6 +212,33 @@ impl UfunguoWallet {
         self.inner.persist(&mut self.connection)?;
 
         Ok(psbt)
+    }
+
+    pub fn sign_psbt(&self, psbt: &mut Psbt, keys: &WalletKeys) -> Result<usize, WalletError> {
+        let master_xpriv = keys.master_xpriv();
+
+        let signed_inputs = match psbt.sign(&master_xpriv, self.inner.secp_ctx()) {
+            Ok(signed_inputs) => signed_inputs,
+            Err((signed_inputs, errors)) => {
+                return Err(WalletError::SignPsbt(format!(
+                    "signed inputs: {signed_inputs:?}; errors: {errors:?}"
+                )));
+            }
+        };
+
+        if signed_inputs.is_empty() {
+            return Err(WalletError::SignPsbt(
+                "the supplied recovery phrase did not match any PSBT input".to_owned(),
+            ));
+        }
+
+        let finalized = self.inner.finalize_psbt(psbt, SignOptions::default())?;
+
+        if !finalized {
+            return Err(WalletError::IncompletePsbt);
+        }
+
+        Ok(signed_inputs.len())
     }
 
     pub fn receive_address_at(&self, index: u32) -> Address {

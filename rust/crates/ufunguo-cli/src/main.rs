@@ -1,4 +1,4 @@
-use bitcoin::{Address, Amount, FeeRate, Network};
+use bitcoin::{Address, Amount, FeeRate, Network, consensus::encode::serialize_hex};
 use clap::{Parser, Subcommand};
 use std::env;
 use std::str::FromStr;
@@ -62,6 +62,19 @@ enum WalletCommands {
         #[arg(long, default_value_t = 2)]
         fee_rate: u32,
     },
+
+    /// Build and sign a transaction using the wallet recovery phrase
+    SignPsbt {
+        /// Regtest destination address
+        address: String,
+
+        /// Amount to send in satoshis
+        amount_sats: u64,
+
+        /// Fee rate in satoshis per virtual byte
+        #[arg(long, default_value_t = 2)]
+        fee_rate: u32,
+    },
 }
 
 fn main() {
@@ -81,6 +94,11 @@ fn main() {
                 amount_sats,
                 fee_rate,
             } => build_psbt(&address, amount_sats, fee_rate),
+            WalletCommands::SignPsbt {
+                address,
+                amount_sats,
+                fee_rate,
+            } => sign_psbt(&address, amount_sats, fee_rate),
         },
     }
 }
@@ -481,6 +499,107 @@ fn build_psbt(address: &str, amount_sats: u64, fee_rate_sat_vb: u32) {
     println!("{psbt}");
     println!();
     println!("This PSBT has not been signed or broadcast.");
+}
+
+fn sign_psbt(address: &str, amount_sats: u64, fee_rate: u32) {
+    let destination = parse_regtest_address_or_exit(address);
+    let amount = Amount::from_sat(amount_sats);
+
+    let fee_rate = match FeeRate::from_sat_per_vb(fee_rate.into()) {
+        Some(fee_rate) => fee_rate,
+        None => {
+            eprintln!("Invalid fee rate: {fee_rate} sat/vB");
+            std::process::exit(1);
+        }
+    };
+
+    let mut wallet = open_existing_wallet_or_exit();
+
+    let mut psbt = match wallet.build_psbt(&destination, amount, fee_rate) {
+        Ok(psbt) => psbt,
+        Err(error) => {
+            eprintln!("Failed to build PSBT: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut phrase = match rpassword::prompt_password("Enter recovery phrase to sign: ") {
+        Ok(phrase) => phrase,
+        Err(error) => {
+            eprintln!("Failed to read recovery phrase: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let mnemonic_result = parse_mnemonic(&phrase);
+    phrase.zeroize();
+
+    let mnemonic = match mnemonic_result {
+        Ok(mnemonic) => mnemonic,
+        Err(error) => {
+            eprintln!("Invalid recovery phrase: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let wallet_keys = derive_wallet_keys_or_exit(&mnemonic);
+
+    let signed_inputs = match wallet.sign_psbt(&mut psbt, &wallet_keys) {
+        Ok(signed_inputs) => signed_inputs,
+        Err(error) => {
+            eprintln!("Failed to sign PSBT: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let transaction = match psbt.extract_tx() {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            eprintln!("Failed to extract signed transaction: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("Transaction signed successfully");
+    println!();
+    println!("Destination: {destination}");
+    println!("Amount: {amount} ({amount_sats} sats)");
+    println!("Signed inputs: {signed_inputs}");
+    println!("TXID: {}", transaction.compute_txid());
+    println!();
+    println!("Raw transaction:");
+    println!("{}", serialize_hex(&transaction));
+    println!();
+    println!("This transaction has been signed but not broadcast.");
+}
+
+fn parse_regtest_address_or_exit(address: &str) -> Address {
+    let unchecked_address = match Address::from_str(address) {
+        Ok(address) => address,
+        Err(error) => {
+            eprintln!("Invalid Bitcoin address: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    match unchecked_address.require_network(Network::Regtest) {
+        Ok(address) => address,
+        Err(error) => {
+            eprintln!("Address is not a regtest address: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn open_existing_wallet_or_exit() -> UfunguoWallet {
+    match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet first.");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn required_environment_variable(name: &str) -> String {
