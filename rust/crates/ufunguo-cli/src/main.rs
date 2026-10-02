@@ -3,8 +3,9 @@ use clap::{Parser, Subcommand};
 use std::env;
 use ufunguo_core::{
     CHANGE_PATH, RECEIVE_PATH, UfunguoWallet, WalletKeys, bitcoin_node_status, description,
-    generate_mnemonic, parse_mnemonic,
+    generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
 };
+
 use zeroize::Zeroize;
 
 const WALLET_DATABASE: &str = "ufunguo.sqlite";
@@ -143,15 +144,52 @@ fn sync_wallet() {
     let rpc_user = required_environment_variable("BITCOIN_RPC_USER");
     let rpc_password = required_environment_variable("BITCOIN_RPC_PASSWORD");
 
-    match bitcoin_node_status(&rpc_url, &rpc_user, &rpc_password) {
-        Ok(status) => {
-            println!("Connected to Bitcoin Core");
-            println!("Network: {}", status.network);
-            println!("Blocks: {}", status.blocks);
-            println!("Headers: {}", status.headers);
-        }
+    let status = match bitcoin_node_status(&rpc_url, &rpc_user, &rpc_password) {
+        Ok(status) => status,
         Err(error) => {
             eprintln!("Failed to connect to Bitcoin Core: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("Connected to Bitcoin Core");
+    println!("Network: {}", status.network);
+    println!("Blocks: {}", status.blocks);
+    println!("Headers: {}", status.headers);
+    println!();
+
+    if status.network != "regtest" {
+        eprintln!(
+            "Network mismatch: Ufunguo expects regtest, but Bitcoin Core is using {}.",
+            status.network
+        );
+        std::process::exit(1);
+    }
+
+    let mut wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet before synchronizing.");
+            std::process::exit(1);
+        }
+    };
+
+    println!("Synchronizing wallet...");
+
+    match synchronize_wallet(&mut wallet, &rpc_url, &rpc_user, &rpc_password) {
+        Ok(report) => {
+            println!("Wallet synchronization complete");
+            println!("Blocks scanned: {}", report.blocks_scanned);
+            println!(
+                "Mempool transactions inspected: {}",
+                report.mempool_transactions
+            );
+            println!("Wallet height: {}", report.wallet_height);
+            println!("Wallet state saved to {WALLET_DATABASE}");
+        }
+        Err(error) => {
+            eprintln!("Failed to synchronize wallet: {error}");
             std::process::exit(1);
         }
     }

@@ -29,8 +29,8 @@ pub enum WalletError {
 }
 
 pub struct UfunguoWallet {
-    inner: PersistedWallet<Connection>,
-    connection: Connection,
+    pub(crate) inner: PersistedWallet<Connection>,
+    pub(crate) connection: Connection,
 }
 
 impl UfunguoWallet {
