@@ -2,17 +2,34 @@ use std::path::Path;
 
 use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet, Wallet,
+    chain::ChainPosition,
     descriptor::template::Bip84,
     rusqlite::{self, Connection},
 };
-
-use bitcoin::{Address, Network};
+use bitcoin::{Address, Amount, Network, Txid};
 use thiserror::Error;
 
 use crate::WalletKeys;
 
 pub const RECEIVE_PATH: &str = "m/84'/1'/0'/0/*";
 pub const CHANGE_PATH: &str = "m/84'/1'/0'/1/*";
+
+#[derive(Debug)]
+pub enum TransactionStatus {
+    Unconfirmed,
+    Confirmed {
+        block_height: u32,
+        confirmations: u32,
+    },
+}
+
+#[derive(Debug)]
+pub struct WalletTransaction {
+    pub txid: Txid,
+    pub sent: Amount,
+    pub received: Amount,
+    pub status: TransactionStatus,
+}
 
 #[derive(Debug, Error)]
 pub enum WalletError {
@@ -87,6 +104,39 @@ impl UfunguoWallet {
 
     pub fn balance(&self) -> Balance {
         self.inner.balance()
+    }
+
+    pub fn transactions(&self) -> Vec<WalletTransaction> {
+        let tip_height = self.inner.latest_checkpoint().height();
+
+        self.inner
+            .transactions_sort_by(|first, second| second.chain_position.cmp(&first.chain_position))
+            .into_iter()
+            .map(|wallet_transaction| {
+                let transaction = wallet_transaction.tx_node.tx;
+                let (sent, received) = self.inner.sent_and_received(&transaction);
+
+                let status = match wallet_transaction.chain_position {
+                    ChainPosition::Confirmed { anchor, .. } => {
+                        let block_height = anchor.block_id.height;
+                        let confirmations = tip_height.saturating_sub(block_height) + 1;
+
+                        TransactionStatus::Confirmed {
+                            block_height,
+                            confirmations,
+                        }
+                    }
+                    ChainPosition::Unconfirmed { .. } => TransactionStatus::Unconfirmed,
+                };
+
+                WalletTransaction {
+                    txid: transaction.compute_txid(),
+                    sent,
+                    received,
+                    status,
+                }
+            })
+            .collect()
     }
 
     pub fn receive_address_at(&self, index: u32) -> Address {

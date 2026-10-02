@@ -2,8 +2,8 @@ use bitcoin::Network;
 use clap::{Parser, Subcommand};
 use std::env;
 use ufunguo_core::{
-    CHANGE_PATH, RECEIVE_PATH, UfunguoWallet, WalletKeys, bitcoin_node_status, description,
-    generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
+    CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys, bitcoin_node_status,
+    description, generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
 };
 
 use zeroize::Zeroize;
@@ -42,6 +42,9 @@ enum WalletCommands {
 
     /// Show confirmed and unconfirmed wallet balance
     Balance,
+
+    /// List wallet transaction history
+    Transactions,
 }
 
 fn main() {
@@ -54,6 +57,7 @@ fn main() {
             WalletCommands::Receive => receive_address(),
             WalletCommands::Sync => sync_wallet(),
             WalletCommands::Balance => show_balance(),
+            WalletCommands::Transactions => show_transactions(),
         },
     }
 }
@@ -235,6 +239,61 @@ fn show_balance() {
         total.to_btc(),
         total.to_sat()
     );
+}
+
+fn show_transactions() {
+    let wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet before viewing transactions.");
+            std::process::exit(1);
+        }
+    };
+
+    let transactions = wallet.transactions();
+
+    if transactions.is_empty() {
+        println!("No wallet transactions found.");
+        println!("Run `ufunguo wallet sync` to discover transactions.");
+        return;
+    }
+
+    println!("Ufunguo transaction history");
+    println!();
+
+    for (index, transaction) in transactions.iter().enumerate() {
+        let (direction, amount) = if transaction.received > transaction.sent {
+            ("Incoming", transaction.received - transaction.sent)
+        } else if transaction.sent > transaction.received {
+            ("Outgoing", transaction.sent - transaction.received)
+        } else {
+            ("Self-transfer", transaction.received)
+        };
+
+        println!("Transaction {}", index + 1);
+        println!("TXID: {}", transaction.txid);
+        println!("Direction: {direction}");
+        println!("Amount: {} BTC ({} sats)", amount.to_btc(), amount.to_sat());
+        println!("Sent by wallet: {} sats", transaction.sent.to_sat());
+        println!("Received by wallet: {} sats", transaction.received.to_sat());
+
+        match &transaction.status {
+            TransactionStatus::Unconfirmed => {
+                println!("Status: Unconfirmed");
+            }
+            TransactionStatus::Confirmed {
+                block_height,
+                confirmations,
+            } => {
+                println!("Status: Confirmed");
+                println!("Block height: {block_height}");
+                println!("Confirmations: {confirmations}");
+            }
+        }
+
+        println!();
+    }
 }
 
 fn required_environment_variable(name: &str) -> String {
