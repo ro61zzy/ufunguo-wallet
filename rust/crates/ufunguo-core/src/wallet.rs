@@ -4,9 +4,10 @@ use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet, Wallet,
     chain::ChainPosition,
     descriptor::template::Bip84,
+    error::CreateTxError,
     rusqlite::{self, Connection},
 };
-use bitcoin::{Address, Amount, Network, OutPoint, Txid};
+use bitcoin::{Address, Amount, FeeRate, Network, OutPoint, Psbt, Txid};
 use thiserror::Error;
 
 use crate::WalletKeys;
@@ -53,6 +54,9 @@ pub enum WalletError {
 
     #[error("no wallet was found in the database")]
     NotFound,
+
+    #[error("failed to build transaction: {0}")]
+    BuildTransaction(#[from] CreateTxError),
 }
 
 pub struct UfunguoWallet {
@@ -176,6 +180,27 @@ impl UfunguoWallet {
                 }
             })
             .collect()
+    }
+
+    pub fn build_psbt(
+        &mut self,
+        destination: &Address,
+        amount: Amount,
+        fee_rate: FeeRate,
+    ) -> Result<Psbt, WalletError> {
+        let mut builder = self.inner.build_tx();
+
+        builder
+            .add_recipient(destination.script_pubkey(), amount)
+            .fee_rate(fee_rate);
+
+        let psbt = builder.finish()?;
+
+        // Building the transaction may reveal a new internal change address.
+        // Persist that derivation state so the wallet remembers it.
+        self.inner.persist(&mut self.connection)?;
+
+        Ok(psbt)
     }
 
     pub fn receive_address_at(&self, index: u32) -> Address {

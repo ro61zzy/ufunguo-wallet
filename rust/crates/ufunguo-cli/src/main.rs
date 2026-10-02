@@ -1,6 +1,7 @@
-use bitcoin::Network;
+use bitcoin::{Address, Amount, FeeRate, Network};
 use clap::{Parser, Subcommand};
 use std::env;
+use std::str::FromStr;
 use ufunguo_core::{
     CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys, bitcoin_node_status,
     description, generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
@@ -48,6 +49,19 @@ enum WalletCommands {
 
     /// List spendable wallet outputs
     Utxos,
+
+    /// Build an unsigned PSBT without signing or broadcasting
+    BuildPsbt {
+        /// Regtest destination address
+        address: String,
+
+        /// Amount to send in satoshis
+        amount_sats: u64,
+
+        /// Fee rate in satoshis per virtual byte
+        #[arg(long, default_value_t = 2)]
+        fee_rate: u32,
+    },
 }
 
 fn main() {
@@ -62,6 +76,11 @@ fn main() {
             WalletCommands::Balance => show_balance(),
             WalletCommands::Transactions => show_transactions(),
             WalletCommands::Utxos => show_utxos(),
+            WalletCommands::BuildPsbt {
+                address,
+                amount_sats,
+                fee_rate,
+            } => build_psbt(&address, amount_sats, fee_rate),
         },
     }
 }
@@ -358,6 +377,110 @@ fn show_utxos() {
         total.to_btc(),
         total.to_sat()
     );
+}
+
+fn build_psbt(address: &str, amount_sats: u64, fee_rate_sat_vb: u32) {
+    let unchecked_address = match Address::from_str(address) {
+        Ok(address) => address,
+        Err(error) => {
+            eprintln!("Invalid Bitcoin address: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let destination = match unchecked_address.require_network(Network::Regtest) {
+        Ok(address) => address,
+        Err(error) => {
+            eprintln!("Destination must be a regtest address: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    if amount_sats == 0 {
+        eprintln!("Amount must be greater than zero.");
+        std::process::exit(1);
+    }
+
+    let amount = Amount::from_sat(amount_sats);
+    let fee_rate = FeeRate::from_sat_per_vb_u32(fee_rate_sat_vb);
+
+    let mut wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let psbt = match wallet.build_psbt(&destination, amount, fee_rate) {
+        Ok(psbt) => psbt,
+        Err(error) => {
+            eprintln!("Failed to build PSBT: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let fee = match psbt.fee() {
+        Ok(fee) => fee,
+        Err(error) => {
+            eprintln!("Failed to calculate PSBT fee: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    println!("Unsigned PSBT created");
+    println!();
+    println!("Destination: {destination}");
+    println!("Amount: {} BTC ({} sats)", amount.to_btc(), amount.to_sat());
+    println!("Fee rate: {fee_rate_sat_vb} sat/vB");
+    println!("Fee: {} BTC ({} sats)", fee.to_btc(), fee.to_sat());
+    println!("Inputs: {}", psbt.unsigned_tx.input.len());
+    println!("Outputs: {}", psbt.unsigned_tx.output.len());
+    println!();
+
+    println!("Selected inputs:");
+    for (index, input) in psbt.unsigned_tx.input.iter().enumerate() {
+        println!("  {}. {}", index + 1, input.previous_output);
+    }
+
+    println!();
+    println!("Created outputs:");
+
+    for (index, output) in psbt.unsigned_tx.output.iter().enumerate() {
+        let output_address = Address::from_script(&output.script_pubkey, Network::Regtest);
+
+        match output_address {
+            Ok(output_address) => {
+                let label = if output_address == destination {
+                    "recipient"
+                } else {
+                    "change"
+                };
+
+                println!(
+                    "  {}. {} BTC ({} sats) -> {} [{}]",
+                    index + 1,
+                    output.value.to_btc(),
+                    output.value.to_sat(),
+                    output_address,
+                    label
+                );
+            }
+            Err(_) => {
+                println!(
+                    "  {}. {} sats -> non-address script",
+                    index + 1,
+                    output.value.to_sat()
+                );
+            }
+        }
+    }
+
+    println!();
+    println!("PSBT (base64):");
+    println!("{psbt}");
+    println!();
+    println!("This PSBT has not been signed or broadcast.");
 }
 
 fn required_environment_variable(name: &str) -> String {
