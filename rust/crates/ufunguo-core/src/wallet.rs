@@ -1,10 +1,11 @@
 use std::path::Path;
 
 use bdk_wallet::{
-    CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet, Wallet,
+    Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet, Wallet,
     descriptor::template::Bip84,
     rusqlite::{self, Connection},
 };
+
 use bitcoin::{Address, Network};
 use thiserror::Error;
 
@@ -82,6 +83,10 @@ impl UfunguoWallet {
 
     pub fn network(&self) -> Network {
         self.inner.network()
+    }
+
+    pub fn balance(&self) -> Balance {
+        self.inner.balance()
     }
 
     pub fn receive_address_at(&self, index: u32) -> Address {

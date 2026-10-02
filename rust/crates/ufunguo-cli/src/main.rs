@@ -39,6 +39,9 @@ enum WalletCommands {
 
     /// Connect to Bitcoin Core and synchronize wallet state
     Sync,
+
+    /// Show confirmed and unconfirmed wallet balance
+    Balance,
 }
 
 fn main() {
@@ -50,6 +53,7 @@ fn main() {
             WalletCommands::Restore => restore_wallet(),
             WalletCommands::Receive => receive_address(),
             WalletCommands::Sync => sync_wallet(),
+            WalletCommands::Balance => show_balance(),
         },
     }
 }
@@ -193,6 +197,44 @@ fn sync_wallet() {
             std::process::exit(1);
         }
     }
+}
+
+fn show_balance() {
+    let wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet before checking its balance.");
+            std::process::exit(1);
+        }
+    };
+
+    let balance = wallet.balance();
+    let unconfirmed = balance.trusted_pending + balance.untrusted_pending;
+    let total = balance.total();
+
+    println!("Ufunguo wallet balance");
+    println!();
+    println!(
+        "Confirmed:   {} BTC ({} sats)",
+        balance.confirmed.to_btc(),
+        balance.confirmed.to_sat()
+    );
+    println!(
+        "Unconfirmed: {} BTC ({} sats)",
+        unconfirmed.to_btc(),
+        unconfirmed.to_sat()
+    );
+    println!(
+        "Immature:    {} BTC ({} sats)",
+        balance.immature.to_btc(),
+        balance.immature.to_sat()
+    );
+    println!(
+        "Total:       {} BTC ({} sats)",
+        total.to_btc(),
+        total.to_sat()
+    );
 }
 
 fn required_environment_variable(name: &str) -> String {
