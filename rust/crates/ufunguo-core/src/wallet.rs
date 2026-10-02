@@ -23,6 +23,9 @@ pub enum WalletError {
 
     #[error("failed to load persisted wallet: {0}")]
     Load(#[from] LoadWithPersistError<rusqlite::Error>),
+
+    #[error("no wallet was found in the database")]
+    NotFound,
 }
 
 pub struct UfunguoWallet {
@@ -59,6 +62,20 @@ impl UfunguoWallet {
             .network(keys.network())
             .create_wallet(&mut connection)?,
         };
+
+        Ok(Self { inner, connection })
+    }
+
+    pub fn open_existing(
+        database_path: impl AsRef<Path>,
+        expected_network: Network,
+    ) -> Result<Self, WalletError> {
+        let mut connection = Connection::open(database_path)?;
+
+        let inner = Wallet::load()
+            .check_network(expected_network)
+            .load_wallet(&mut connection)?
+            .ok_or(WalletError::NotFound)?;
 
         Ok(Self { inner, connection })
     }
@@ -149,7 +166,7 @@ mod tests {
         };
 
         let second_address = {
-            let mut wallet = UfunguoWallet::open_or_create(&keys, &database)
+            let mut wallet = UfunguoWallet::open_existing(&database, Network::Regtest)
                 .expect("wallet loading should succeed");
 
             wallet

@@ -30,6 +30,9 @@ enum WalletCommands {
 
     /// Validate and restore an existing recovery phrase
     Restore,
+
+    /// Generate and remember a fresh receive address
+    Receive,
 }
 
 fn main() {
@@ -39,6 +42,7 @@ fn main() {
         Commands::Wallet { command } => match command {
             WalletCommands::Create => create_wallet(),
             WalletCommands::Restore => restore_wallet(),
+            WalletCommands::Receive => receive_address(),
         },
     }
 }
@@ -93,6 +97,31 @@ fn restore_wallet() {
         }
         Err(error) => {
             eprintln!("Invalid recovery phrase: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn receive_address() {
+    let mut wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet before requesting an address.");
+            std::process::exit(1);
+        }
+    };
+
+    match wallet.next_receive_address() {
+        Ok(address) => {
+            println!("Fresh receive address:");
+            println!("{address}");
+            println!();
+            println!("Network: {:?}", wallet.network());
+            println!("Address state saved to {WALLET_DATABASE}");
+        }
+        Err(error) => {
+            eprintln!("Failed to generate receive address: {error}");
             std::process::exit(1);
         }
     }
