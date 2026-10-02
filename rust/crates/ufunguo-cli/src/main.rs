@@ -1,10 +1,12 @@
 use bitcoin::Network;
 use clap::{Parser, Subcommand};
+use std::env;
 use ufunguo_core::{
-    CHANGE_PATH, RECEIVE_PATH, UfunguoWallet, WalletKeys, description, generate_mnemonic,
-    parse_mnemonic,
+    CHANGE_PATH, RECEIVE_PATH, UfunguoWallet, WalletKeys, bitcoin_node_status, description,
+    generate_mnemonic, parse_mnemonic,
 };
 use zeroize::Zeroize;
+
 const WALLET_DATABASE: &str = "ufunguo.sqlite";
 
 #[derive(Parser)]
@@ -33,6 +35,9 @@ enum WalletCommands {
 
     /// Generate and remember a fresh receive address
     Receive,
+
+    /// Connect to Bitcoin Core and synchronize wallet state
+    Sync,
 }
 
 fn main() {
@@ -43,6 +48,7 @@ fn main() {
             WalletCommands::Create => create_wallet(),
             WalletCommands::Restore => restore_wallet(),
             WalletCommands::Receive => receive_address(),
+            WalletCommands::Sync => sync_wallet(),
         },
     }
 }
@@ -122,6 +128,40 @@ fn receive_address() {
         }
         Err(error) => {
             eprintln!("Failed to generate receive address: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn sync_wallet() {
+    if let Err(error) = dotenvy::dotenv() {
+        eprintln!("Failed to load .env: {error}");
+        std::process::exit(1);
+    }
+
+    let rpc_url = required_environment_variable("BITCOIN_RPC_URL");
+    let rpc_user = required_environment_variable("BITCOIN_RPC_USER");
+    let rpc_password = required_environment_variable("BITCOIN_RPC_PASSWORD");
+
+    match bitcoin_node_status(&rpc_url, &rpc_user, &rpc_password) {
+        Ok(status) => {
+            println!("Connected to Bitcoin Core");
+            println!("Network: {}", status.network);
+            println!("Blocks: {}", status.blocks);
+            println!("Headers: {}", status.headers);
+        }
+        Err(error) => {
+            eprintln!("Failed to connect to Bitcoin Core: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn required_environment_variable(name: &str) -> String {
+    match env::var(name) {
+        Ok(value) => value,
+        Err(_) => {
+            eprintln!("Missing environment variable: {name}");
             std::process::exit(1);
         }
     }

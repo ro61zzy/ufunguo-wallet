@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bdk_bitcoind_rpc = "0.22.0"
 bdk_wallet = { version = "3.2.0", features = ["rusqlite"] }
 bip39 = { version = "3.0.0", features = ["rand", "zeroize"] }
 bitcoin = "0.32.102"
