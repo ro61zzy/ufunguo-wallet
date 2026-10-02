@@ -45,6 +45,9 @@ enum WalletCommands {
 
     /// List wallet transaction history
     Transactions,
+
+    /// List spendable wallet outputs
+    Utxos,
 }
 
 fn main() {
@@ -58,6 +61,7 @@ fn main() {
             WalletCommands::Sync => sync_wallet(),
             WalletCommands::Balance => show_balance(),
             WalletCommands::Transactions => show_transactions(),
+            WalletCommands::Utxos => show_utxos(),
         },
     }
 }
@@ -294,6 +298,66 @@ fn show_transactions() {
 
         println!();
     }
+}
+
+fn show_utxos() {
+    let wallet = match UfunguoWallet::open_existing(WALLET_DATABASE, Network::Regtest) {
+        Ok(wallet) => wallet,
+        Err(error) => {
+            eprintln!("Failed to open wallet: {error}");
+            eprintln!("Create or restore a wallet before viewing UTXOs.");
+            std::process::exit(1);
+        }
+    };
+
+    let utxos = wallet.unspent_outputs();
+
+    if utxos.is_empty() {
+        println!("No spendable UTXOs found.");
+        println!("Receive bitcoin and synchronize the wallet first.");
+        return;
+    }
+
+    let total = utxos
+        .iter()
+        .fold(bitcoin::Amount::ZERO, |sum, utxo| sum + utxo.value);
+
+    println!("Ufunguo spendable outputs");
+    println!();
+
+    for (index, utxo) in utxos.iter().enumerate() {
+        println!("UTXO {}", index + 1);
+        println!("Outpoint: {}", utxo.outpoint);
+        println!(
+            "Value: {} BTC ({} sats)",
+            utxo.value.to_btc(),
+            utxo.value.to_sat()
+        );
+        println!("Keychain: {:?}", utxo.keychain);
+        println!("Derivation index: {}", utxo.derivation_index);
+
+        match &utxo.status {
+            TransactionStatus::Unconfirmed => {
+                println!("Status: Unconfirmed");
+            }
+            TransactionStatus::Confirmed {
+                block_height,
+                confirmations,
+            } => {
+                println!("Status: Confirmed");
+                println!("Block height: {block_height}");
+                println!("Confirmations: {confirmations}");
+            }
+        }
+
+        println!();
+    }
+
+    println!(
+        "Total spendable: {} BTC ({} sats)",
+        total.to_btc(),
+        total.to_sat()
+    );
 }
 
 fn required_environment_variable(name: &str) -> String {

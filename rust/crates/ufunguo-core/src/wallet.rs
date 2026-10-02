@@ -6,7 +6,7 @@ use bdk_wallet::{
     descriptor::template::Bip84,
     rusqlite::{self, Connection},
 };
-use bitcoin::{Address, Amount, Network, Txid};
+use bitcoin::{Address, Amount, Network, OutPoint, Txid};
 use thiserror::Error;
 
 use crate::WalletKeys;
@@ -28,6 +28,15 @@ pub struct WalletTransaction {
     pub txid: Txid,
     pub sent: Amount,
     pub received: Amount,
+    pub status: TransactionStatus,
+}
+
+#[derive(Debug)]
+pub struct WalletUtxo {
+    pub outpoint: OutPoint,
+    pub value: Amount,
+    pub keychain: KeychainKind,
+    pub derivation_index: u32,
     pub status: TransactionStatus,
 }
 
@@ -133,6 +142,36 @@ impl UfunguoWallet {
                     txid: transaction.compute_txid(),
                     sent,
                     received,
+                    status,
+                }
+            })
+            .collect()
+    }
+
+    pub fn unspent_outputs(&self) -> Vec<WalletUtxo> {
+        let tip_height = self.inner.latest_checkpoint().height();
+
+        self.inner
+            .list_unspent()
+            .map(|output| {
+                let status = match output.chain_position {
+                    ChainPosition::Confirmed { anchor, .. } => {
+                        let block_height = anchor.block_id.height;
+                        let confirmations = tip_height.saturating_sub(block_height) + 1;
+
+                        TransactionStatus::Confirmed {
+                            block_height,
+                            confirmations,
+                        }
+                    }
+                    ChainPosition::Unconfirmed { .. } => TransactionStatus::Unconfirmed,
+                };
+
+                WalletUtxo {
+                    outpoint: output.outpoint,
+                    value: output.txout.value,
+                    keychain: output.keychain,
+                    derivation_index: output.derivation_index,
                     status,
                 }
             })
