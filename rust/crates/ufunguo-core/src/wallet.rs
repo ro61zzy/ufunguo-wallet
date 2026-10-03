@@ -241,6 +241,12 @@ impl UfunguoWallet {
         Ok(signed_inputs.len())
     }
 
+    pub fn transaction(&self, txid: Txid) -> Option<WalletTransaction> {
+        self.transactions()
+            .into_iter()
+            .find(|transaction| transaction.txid == txid)
+    }
+
     pub fn receive_address_at(&self, index: u32) -> Address {
         self.inner
             .peek_address(KeychainKind::External, index)

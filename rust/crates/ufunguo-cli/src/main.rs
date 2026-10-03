@@ -1,5 +1,5 @@
 use bitcoin::{
-    Address, Amount, FeeRate, Network, Transaction,
+    Address, Amount, FeeRate, Network, Transaction, Txid,
     consensus::encode::{deserialize_hex, serialize_hex},
 };
 use clap::{Parser, Subcommand};
@@ -84,6 +84,12 @@ enum WalletCommands {
         /// Signed transaction encoded as hexadecimal
         raw_transaction: String,
     },
+
+    /// Display the status and confirmation count of one transaction
+    Status {
+        /// Transaction ID to inspect
+        txid: String,
+    },
 }
 
 fn main() {
@@ -111,6 +117,7 @@ fn main() {
             WalletCommands::Broadcast { raw_transaction } => {
                 broadcast_raw_transaction(&raw_transaction)
             }
+            WalletCommands::Status { txid } => transaction_status(&txid),
         },
     }
 }
@@ -620,6 +627,60 @@ fn broadcast_raw_transaction(raw_transaction: &str) {
         Err(error) => {
             eprintln!("Failed to broadcast transaction: {error}");
             std::process::exit(1);
+        }
+    }
+}
+
+fn transaction_status(txid: &str) {
+    let txid = match Txid::from_str(txid) {
+        Ok(txid) => txid,
+        Err(error) => {
+            eprintln!("Invalid transaction ID: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let wallet = open_existing_wallet_or_exit();
+
+    let transaction = match wallet.transaction(txid) {
+        Some(transaction) => transaction,
+        None => {
+            eprintln!("Transaction was not found in this wallet.");
+            eprintln!("Run `ufunguo wallet sync` and try again.");
+            std::process::exit(1);
+        }
+    };
+
+    let direction = if transaction.received > transaction.sent {
+        "Incoming"
+    } else {
+        "Outgoing"
+    };
+
+    let amount = if transaction.received > transaction.sent {
+        transaction.received - transaction.sent
+    } else {
+        transaction.sent - transaction.received
+    };
+
+    println!("Ufunguo transaction status");
+    println!();
+    println!("TXID: {}", transaction.txid);
+    println!("Direction: {direction}");
+    println!("Amount: {} ({} sats)", amount, amount.to_sat());
+
+    match transaction.status {
+        TransactionStatus::Unconfirmed => {
+            println!("Status: Unconfirmed");
+            println!("Confirmations: 0");
+        }
+        TransactionStatus::Confirmed {
+            block_height,
+            confirmations,
+        } => {
+            println!("Status: Confirmed");
+            println!("Block height: {block_height}");
+            println!("Confirmations: {confirmations}");
         }
     }
 }
