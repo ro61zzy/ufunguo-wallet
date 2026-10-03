@@ -1,10 +1,14 @@
-use bitcoin::{Address, Amount, FeeRate, Network, consensus::encode::serialize_hex};
+use bitcoin::{
+    Address, Amount, FeeRate, Network, Transaction,
+    consensus::encode::{deserialize_hex, serialize_hex},
+};
 use clap::{Parser, Subcommand};
 use std::env;
 use std::str::FromStr;
 use ufunguo_core::{
     CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys, bitcoin_node_status,
-    description, generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
+    broadcast_transaction, description, generate_mnemonic, parse_mnemonic,
+    sync_wallet as synchronize_wallet,
 };
 
 use zeroize::Zeroize;
@@ -75,6 +79,11 @@ enum WalletCommands {
         #[arg(long, default_value_t = 2)]
         fee_rate: u32,
     },
+    /// Broadcast a signed raw transaction through Bitcoin Core
+    Broadcast {
+        /// Signed transaction encoded as hexadecimal
+        raw_transaction: String,
+    },
 }
 
 fn main() {
@@ -99,6 +108,9 @@ fn main() {
                 amount_sats,
                 fee_rate,
             } => sign_psbt(&address, amount_sats, fee_rate),
+            WalletCommands::Broadcast { raw_transaction } => {
+                broadcast_raw_transaction(&raw_transaction)
+            }
         },
     }
 }
@@ -571,6 +583,45 @@ fn sign_psbt(address: &str, amount_sats: u64, fee_rate: u32) {
     println!("{}", serialize_hex(&transaction));
     println!();
     println!("This transaction has been signed but not broadcast.");
+}
+
+fn broadcast_raw_transaction(raw_transaction: &str) {
+    if let Err(error) = dotenvy::dotenv() {
+        eprintln!("Failed to load .env: {error}");
+        std::process::exit(1);
+    }
+
+    let transaction: Transaction = match deserialize_hex(raw_transaction) {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            eprintln!("Invalid raw transaction: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let calculated_txid = transaction.compute_txid();
+
+    let rpc_url = required_environment_variable("BITCOIN_RPC_URL");
+    let rpc_user = required_environment_variable("BITCOIN_RPC_USER");
+    let rpc_password = required_environment_variable("BITCOIN_RPC_PASSWORD");
+
+    println!("Broadcasting transaction...");
+    println!("Calculated TXID: {calculated_txid}");
+
+    match broadcast_transaction(&rpc_url, &rpc_user, &rpc_password, &transaction) {
+        Ok(txid) => {
+            println!();
+            println!("Transaction broadcast successfully");
+            println!("TXID: {txid}");
+            println!("Status: Unconfirmed");
+            println!();
+            println!("Run `ufunguo wallet sync` to update wallet state.");
+        }
+        Err(error) => {
+            eprintln!("Failed to broadcast transaction: {error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn parse_regtest_address_or_exit(address: &str) -> Address {

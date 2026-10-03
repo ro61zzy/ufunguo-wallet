@@ -3,7 +3,7 @@ mod node;
 mod wallet;
 
 pub use keys::{WalletKeys, generate_mnemonic, parse_mnemonic};
-pub use node::{NodeStatus, SyncReport, bitcoin_node_status, sync_wallet};
+pub use node::{NodeStatus, SyncReport, bitcoin_node_status, broadcast_transaction, sync_wallet};
 pub use wallet::{
     CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletError, WalletTransaction,
     WalletUtxo,

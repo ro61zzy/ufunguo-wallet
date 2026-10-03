@@ -1,6 +1,7 @@
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
 use bdk_bitcoind_rpc::{Emitter, NO_EXPECTED_MEMPOOL_TXS};
 use bdk_wallet::{chain::local_chain::ApplyHeaderError, rusqlite};
+use bitcoin::{Transaction, Txid};
 use thiserror::Error;
 
 use crate::UfunguoWallet;
@@ -44,6 +45,22 @@ pub fn bitcoin_node_status(
         blocks: information.blocks,
         headers: information.headers,
     })
+}
+
+pub fn broadcast_transaction(
+    rpc_url: &str,
+    rpc_user: &str,
+    rpc_password: &str,
+    transaction: &Transaction,
+) -> Result<Txid, NodeError> {
+    let client = Client::new(
+        rpc_url,
+        Auth::UserPass(rpc_user.to_owned(), rpc_password.to_owned()),
+    )?;
+
+    let txid = client.send_raw_transaction(transaction)?;
+
+    Ok(txid)
 }
 
 pub fn sync_wallet(
