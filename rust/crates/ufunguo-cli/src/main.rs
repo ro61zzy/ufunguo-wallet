@@ -3,11 +3,10 @@ use bitcoin::{
     consensus::encode::{deserialize_hex, serialize_hex},
 };
 use clap::{Parser, Subcommand};
-use std::env;
-use std::str::FromStr;
+use std::{env, str::FromStr, thread, time::Duration};
 use ufunguo_core::{
-    CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys, bitcoin_node_status,
-    broadcast_transaction, description, generate_mnemonic, parse_mnemonic,
+    CHANGE_PATH, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys, WalletTransaction,
+    bitcoin_node_status, broadcast_transaction, description, generate_mnemonic, parse_mnemonic,
     sync_wallet as synchronize_wallet,
 };
 
@@ -85,10 +84,17 @@ enum WalletCommands {
         raw_transaction: String,
     },
 
-    /// Display the status and confirmation count of one transaction
     Status {
         /// Transaction ID to inspect
         txid: String,
+
+        /// Repeatedly synchronize until the transaction confirms
+        #[arg(long)]
+        watch: bool,
+
+        /// Number of seconds between synchronization attempts
+        #[arg(long, default_value_t = 10)]
+        interval: u64,
     },
 }
 
@@ -117,7 +123,11 @@ fn main() {
             WalletCommands::Broadcast { raw_transaction } => {
                 broadcast_raw_transaction(&raw_transaction)
             }
-            WalletCommands::Status { txid } => transaction_status(&txid),
+            WalletCommands::Status {
+                txid,
+                watch,
+                interval,
+            } => transaction_status(&txid, watch, interval),
         },
     }
 }
@@ -631,7 +641,7 @@ fn broadcast_raw_transaction(raw_transaction: &str) {
     }
 }
 
-fn transaction_status(txid: &str) {
+fn transaction_status(txid: &str, watch: bool, interval: u64) {
     let txid = match Txid::from_str(txid) {
         Ok(txid) => txid,
         Err(error) => {
@@ -640,27 +650,88 @@ fn transaction_status(txid: &str) {
         }
     };
 
-    let wallet = open_existing_wallet_or_exit();
+    if watch {
+        watch_transaction(txid, interval);
+    } else {
+        let wallet = open_existing_wallet_or_exit();
 
-    let transaction = match wallet.transaction(txid) {
-        Some(transaction) => transaction,
-        None => {
-            eprintln!("Transaction was not found in this wallet.");
-            eprintln!("Run `ufunguo wallet sync` and try again.");
-            std::process::exit(1);
+        let transaction = match wallet.transaction(txid) {
+            Some(transaction) => transaction,
+            None => {
+                eprintln!("Transaction was not found in this wallet.");
+                eprintln!("Run `ufunguo wallet sync` and try again.");
+                std::process::exit(1);
+            }
+        };
+
+        print_transaction_status(&transaction);
+    }
+}
+
+fn watch_transaction(txid: Txid, interval: u64) {
+    if interval == 0 {
+        eprintln!("Polling interval must be greater than zero seconds.");
+        std::process::exit(1);
+    }
+
+    if let Err(error) = dotenvy::dotenv() {
+        eprintln!("Failed to load .env: {error}");
+        std::process::exit(1);
+    }
+
+    let rpc_url = required_environment_variable("BITCOIN_RPC_URL");
+    let rpc_user = required_environment_variable("BITCOIN_RPC_USER");
+    let rpc_password = required_environment_variable("BITCOIN_RPC_PASSWORD");
+
+    println!("Watching transaction {txid}");
+    println!("Polling every {interval} seconds. Press Ctrl+C to stop.");
+    println!();
+
+    loop {
+        let mut wallet = open_existing_wallet_or_exit();
+
+        let report = match synchronize_wallet(&mut wallet, &rpc_url, &rpc_user, &rpc_password) {
+            Ok(report) => report,
+            Err(error) => {
+                eprintln!("Failed to synchronize wallet: {error}");
+                std::process::exit(1);
+            }
+        };
+
+        println!("Wallet synchronized at height {}", report.wallet_height);
+
+        let transaction = match wallet.transaction(txid) {
+            Some(transaction) => transaction,
+            None => {
+                eprintln!("Transaction was not found in this wallet.");
+                eprintln!("It may not have reached the connected Bitcoin node yet.");
+                std::process::exit(1);
+            }
+        };
+
+        let confirmed = print_transaction_status(&transaction);
+
+        if confirmed {
+            println!();
+            println!("Transaction confirmed. Polling complete.");
+            break;
         }
-    };
 
-    let direction = if transaction.received > transaction.sent {
-        "Incoming"
-    } else {
-        "Outgoing"
-    };
+        println!();
+        println!("Still unconfirmed. Checking again in {interval} seconds...");
+        println!();
 
-    let amount = if transaction.received > transaction.sent {
-        transaction.received - transaction.sent
+        thread::sleep(Duration::from_secs(interval));
+    }
+}
+
+fn print_transaction_status(transaction: &WalletTransaction) -> bool {
+    let (direction, amount) = if transaction.received > transaction.sent {
+        ("Incoming", transaction.received - transaction.sent)
+    } else if transaction.sent > transaction.received {
+        ("Outgoing", transaction.sent - transaction.received)
     } else {
-        transaction.sent - transaction.received
+        ("Self-transfer", transaction.received)
     };
 
     println!("Ufunguo transaction status");
@@ -669,10 +740,11 @@ fn transaction_status(txid: &str) {
     println!("Direction: {direction}");
     println!("Amount: {} ({} sats)", amount, amount.to_sat());
 
-    match transaction.status {
+    match &transaction.status {
         TransactionStatus::Unconfirmed => {
             println!("Status: Unconfirmed");
             println!("Confirmations: 0");
+            false
         }
         TransactionStatus::Confirmed {
             block_height,
@@ -681,6 +753,7 @@ fn transaction_status(txid: &str) {
             println!("Status: Confirmed");
             println!("Block height: {block_height}");
             println!("Confirmations: {confirmations}");
+            true
         }
     }
 }
