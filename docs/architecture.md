@@ -2,13 +2,14 @@
 
 ## Design goal
 
-Ufunguo separates Bitcoin wallet behavior from presentation. `ufunguo-core` owns wallet rules and can later power a CLI, a mobile bridge or another interface without duplicating key derivation and transaction logic.
+Ufunguo separates Bitcoin wallet behavior from presentation. `ufunguo-core` owns wallet rules and powers both the CLI and the mobile app's local API bridge without duplicating key derivation and transaction logic. See [mobile-architecture.md](mobile-architecture.md) for the mobile boundary.
 
 ```mermaid
 flowchart LR
     subgraph Interfaces
         CLI["Rust CLI"]
-        Mobile["React Native — planned"]
+        Mobile["React Native app"]
+        Api["ufunguo-api (local dev bridge)"]
     end
 
     subgraph Wallet
@@ -23,7 +24,8 @@ flowchart LR
     end
 
     CLI --> Core
-    Mobile -. "future bridge" .-> Core
+    Mobile -- "JSON over localhost" --> Api
+    Api --> Core
     Core --> BDK
     BDK <--> Store
     Core <--> Node

@@ -8,7 +8,10 @@
 *.sqlite-wal
 *.sqlite-shm
 *.db
-*mnemonic*
+*mnemonic*.txt
+*mnemonic*.json
+*phrase*.txt
+*.mnemonic
 *.seed
 *.xprv
 
