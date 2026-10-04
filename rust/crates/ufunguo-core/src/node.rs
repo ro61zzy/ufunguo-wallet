@@ -1,7 +1,7 @@
-use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
+use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi, json::EstimateMode};
 use bdk_bitcoind_rpc::{Emitter, NO_EXPECTED_MEMPOOL_TXS};
 use bdk_wallet::{chain::local_chain::ApplyHeaderError, rusqlite};
-use bitcoin::{Transaction, Txid};
+use bitcoin::{Amount, FeeRate, Transaction, Txid};
 use thiserror::Error;
 
 use crate::UfunguoWallet;
@@ -53,14 +53,28 @@ pub fn broadcast_transaction(
     rpc_password: &str,
     transaction: &Transaction,
 ) -> Result<Txid, NodeError> {
-    let client = Client::new(
-        rpc_url,
-        Auth::UserPass(rpc_user.to_owned(), rpc_password.to_owned()),
-    )?;
+    let client = create_rpc_client(rpc_url, rpc_user, rpc_password)?;
 
     let txid = client.send_raw_transaction(transaction)?;
 
     Ok(txid)
+}
+
+pub fn estimate_fee_rate(
+    rpc_url: &str,
+    rpc_user: &str,
+    rpc_password: &str,
+    confirmation_target: u16,
+) -> Result<Option<FeeRate>, NodeError> {
+    let client = create_rpc_client(rpc_url, rpc_user, rpc_password)?;
+    let estimate =
+        client.estimate_smart_fee(confirmation_target, Some(EstimateMode::Conservative))?;
+
+    let Some(amount_per_kvb) = estimate.fee_rate else {
+        return Ok(None);
+    };
+
+    Ok(fee_rate_from_amount_per_kvb(amount_per_kvb))
 }
 
 pub fn sync_wallet(
@@ -110,4 +124,29 @@ fn create_rpc_client(
         rpc_url,
         Auth::UserPass(rpc_user.to_owned(), rpc_password.to_owned()),
     )?)
+}
+
+fn fee_rate_from_amount_per_kvb(amount_per_kvb: Amount) -> Option<FeeRate> {
+    // Bitcoin Core returns BTC/kvB. `Amount` converts that to sat/kvB,
+    // then we round up to sat/vB so the wallet never underpays because
+    // of integer division.
+    let sats_per_vb = amount_per_kvb.to_sat().div_ceil(1_000).max(1);
+
+    FeeRate::from_sat_per_vb(sats_per_vb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_core_fee_estimate_from_kvb_to_vb_and_rounds_up() {
+        let exact =
+            fee_rate_from_amount_per_kvb(Amount::from_sat(2_000)).expect("valid exact fee rate");
+        let rounded =
+            fee_rate_from_amount_per_kvb(Amount::from_sat(2_001)).expect("valid rounded fee rate");
+
+        assert_eq!(exact.to_sat_per_vb_ceil(), 2);
+        assert_eq!(rounded.to_sat_per_vb_ceil(), 3);
+    }
 }

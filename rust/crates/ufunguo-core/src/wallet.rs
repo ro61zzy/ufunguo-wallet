@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use bdk_wallet::{
     Balance, CreateWithPersistError, KeychainKind, LoadWithPersistError, PersistedWallet,
@@ -41,6 +41,14 @@ pub struct WalletUtxo {
     pub keychain: KeychainKind,
     pub derivation_index: u32,
     pub status: TransactionStatus,
+}
+
+#[derive(Debug)]
+pub struct WalletAddress {
+    pub address: Address,
+    pub keychain: KeychainKind,
+    pub derivation_index: u32,
+    pub used: bool,
 }
 
 #[derive(Debug, Error)]
@@ -193,6 +201,35 @@ impl UfunguoWallet {
             .collect()
     }
 
+    pub fn addresses(&self) -> Vec<WalletAddress> {
+        let mut addresses = Vec::new();
+
+        for keychain in [KeychainKind::External, KeychainKind::Internal] {
+            let unused_indices: HashSet<u32> = self
+                .inner
+                .list_unused_addresses(keychain)
+                .map(|address| address.index)
+                .collect();
+
+            let Some(last_revealed_index) = self.inner.derivation_index(keychain) else {
+                continue;
+            };
+
+            for index in 0..=last_revealed_index {
+                let address = self.inner.peek_address(keychain, index).address;
+
+                addresses.push(WalletAddress {
+                    address,
+                    keychain,
+                    derivation_index: index,
+                    used: !unused_indices.contains(&index),
+                });
+            }
+        }
+
+        addresses
+    }
+
     pub fn build_psbt(
         &mut self,
         destination: &Address,
@@ -338,5 +375,39 @@ mod tests {
         };
 
         assert_ne!(first_address, second_address);
+    }
+
+    #[test]
+    fn lists_revealed_addresses_and_tracks_usage() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let database = directory.path().join("wallet.sqlite");
+        let keys = test_keys();
+
+        let mut wallet =
+            UfunguoWallet::open_or_create(&keys, database).expect("wallet creation should succeed");
+
+        let address = wallet
+            .next_receive_address()
+            .expect("address should persist");
+
+        let listed = wallet
+            .addresses()
+            .into_iter()
+            .find(|entry| entry.address == address)
+            .expect("revealed address should be listed");
+
+        assert_eq!(listed.keychain, KeychainKind::External);
+        assert_eq!(listed.derivation_index, 0);
+        assert!(!listed.used);
+
+        assert!(wallet.inner.mark_used(KeychainKind::External, 0));
+
+        let marked_used = wallet
+            .addresses()
+            .into_iter()
+            .find(|entry| entry.address == address)
+            .expect("used address should remain listed");
+
+        assert!(marked_used.used);
     }
 }
