@@ -32,6 +32,19 @@ pub enum NodeError {
     Database(#[from] rusqlite::Error),
 }
 
+impl NodeError {
+    /// True when Bitcoin Core answered but refused the request, for example
+    /// an invalid or already-spent transaction, rather than being unreachable.
+    pub fn is_rejection(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc(bdk_bitcoind_rpc::bitcoincore_rpc::Error::JsonRpc(
+                bdk_bitcoind_rpc::bitcoincore_rpc::jsonrpc::error::Error::Rpc(_)
+            ))
+        )
+    }
+}
+
 pub fn bitcoin_node_status(
     rpc_url: &str,
     rpc_user: &str,

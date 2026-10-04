@@ -2,5 +2,6 @@
 members = [
     "crates/ufunguo-core",
     "crates/ufunguo-cli",
+    "crates/ufunguo-api",
 ]
 resolver = "2"

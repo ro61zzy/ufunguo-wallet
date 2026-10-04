@@ -1,10 +1,10 @@
 use bitcoin::{
-    Address, Amount, FeeRate, Network, Psbt, Transaction, Txid,
+    Address, Amount, FeeRate, Psbt, Transaction, Txid,
+    bip32::Fingerprint,
     consensus::encode::{deserialize_hex, serialize_hex},
 };
 use clap::{Parser, Subcommand};
 use std::{
-    env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
     str::FromStr,
@@ -13,13 +13,12 @@ use std::{
     time::Duration,
 };
 use ufunguo_core::{
-    CHANGE_PATH, KeychainKind, RECEIVE_PATH, TransactionStatus, UfunguoWallet, WalletKeys,
-    WalletTransaction, bitcoin_node_status, broadcast_transaction, description, estimate_fee_rate,
-    generate_mnemonic, parse_mnemonic, sync_wallet as synchronize_wallet,
+    CHANGE_PATH, KeychainKind, OutputRole, RECEIVE_PATH, TransactionDirection, TransactionStatus,
+    UfunguoWallet, WalletTransaction, description,
+    service::{self, DEFAULT_FEE_RATE_SAT_VB, FeeSource, ResolvedFeeRate, RpcConfig, ServiceError},
 };
 use zeroize::Zeroize;
 
-const DEFAULT_FEE_RATE_SAT_VB: u32 = 2;
 static WALLET_DATABASE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Parser)]
@@ -126,19 +125,6 @@ enum WalletCommands {
     },
 }
 
-#[derive(Debug)]
-struct RpcConfig {
-    url: String,
-    user: String,
-    password: String,
-}
-
-#[derive(Debug)]
-struct ResolvedFeeRate {
-    rate: FeeRate,
-    source: &'static str,
-}
-
 fn main() {
     let cli = Cli::parse();
     WALLET_DATABASE
@@ -194,62 +180,60 @@ fn run_wallet_command(command: WalletCommands) {
 }
 
 fn create_wallet() {
-    if wallet_database().exists() {
-        eprintln!(
-            "A wallet database already exists at {}.",
-            wallet_database().display()
-        );
-        eprintln!("Refusing to overwrite it or mix it with a new recovery phrase.");
-        eprintln!();
-        eprintln!("Create a named demo wallet with:");
-        eprintln!("  ufunguo --database wallets/demo.sqlite wallet create");
-        std::process::exit(1);
-    }
-
-    ensure_database_parent_exists();
-
-    match generate_mnemonic() {
-        Ok(mnemonic) => {
-            let wallet_keys = derive_wallet_keys_or_exit(&mnemonic);
-            let wallet = create_bip84_wallet_or_exit(&wallet_keys);
-
+    match service::create_wallet(wallet_database()) {
+        Ok(created) => {
             println!("{}", description());
             println!();
             println!("Recovery phrase:");
-            println!("{mnemonic}");
+            println!("{}", created.mnemonic);
             println!();
             println!("WARNING: Store these words securely and never share them.");
             println!();
-            print_wallet_details(&wallet_keys, &wallet);
+            print_wallet_details(created.master_fingerprint, &created.first_receive_address);
             println!("Database: {}", wallet_database().display());
+        }
+        Err(ServiceError::WalletExists(_)) => {
+            eprintln!(
+                "A wallet database already exists at {}.",
+                wallet_database().display()
+            );
+            eprintln!("Refusing to overwrite it or mix it with a new recovery phrase.");
+            eprintln!();
+            eprintln!("Create a named demo wallet with:");
+            eprintln!("  ufunguo --database wallets/demo.sqlite wallet create");
+            std::process::exit(1);
         }
         Err(error) => exit_with_error("Failed to create wallet", error),
     }
 }
 
 fn restore_wallet() {
-    ensure_database_parent_exists();
-
     let mut phrase = match rpassword::prompt_password("Enter recovery phrase: ") {
         Ok(phrase) => phrase,
         Err(error) => exit_with_error("Failed to read recovery phrase", error),
     };
 
-    let result = parse_mnemonic(&phrase);
+    let result = service::restore_wallet(wallet_database(), &phrase);
     phrase.zeroize();
 
     match result {
-        Ok(mnemonic) => {
-            let wallet_keys = derive_wallet_keys_or_exit(&mnemonic);
-            let wallet = create_bip84_wallet_or_exit(&wallet_keys);
-            println!(
-                "Recovery phrase is valid: {} words detected.",
-                mnemonic.word_count()
-            );
-            print_wallet_details(&wallet_keys, &wallet);
+        Ok(restored) => {
+            println!("Recovery phrase is valid: 12 words detected.");
+            print_wallet_details(restored.master_fingerprint, &restored.first_receive_address);
             println!("Database: {}", wallet_database().display());
         }
-        Err(error) => exit_with_error("Invalid recovery phrase", error),
+        Err(ServiceError::InvalidMnemonic(error)) => {
+            exit_with_error("Invalid recovery phrase", error)
+        }
+        Err(ServiceError::WalletMismatch(_)) => {
+            eprintln!("Failed to open BIP84 wallet: database belongs to another wallet");
+            eprintln!("Database: {}", wallet_database().display());
+            eprintln!(
+                "If this database belongs to another recovery phrase, choose a different `--database` path."
+            );
+            std::process::exit(1);
+        }
+        Err(error) => exit_with_error("Failed to restore wallet", error),
     }
 }
 
@@ -305,12 +289,12 @@ fn sync_wallet() {
     println!("Blocks: {}", status.blocks);
     println!("Headers: {}", status.headers);
     println!();
-    ensure_regtest_node(&status.network);
+    ensure_regtest_node(&rpc);
 
     let mut wallet = open_existing_wallet_or_exit();
     println!("Synchronizing wallet...");
 
-    match synchronize_wallet(&mut wallet, &rpc.url, &rpc.user, &rpc.password) {
+    match rpc.sync(&mut wallet) {
         Ok(report) => {
             println!("Wallet synchronization complete");
             println!("Blocks scanned: {}", report.blocks_scanned);
@@ -422,13 +406,17 @@ fn show_utxos() {
 fn show_fee_estimate(confirmation_target: u16) {
     let rpc = rpc_config_or_exit();
 
-    match estimate_fee_rate(&rpc.url, &rpc.user, &rpc.password, confirmation_target) {
-        Ok(Some(fee_rate)) => {
+    match service::resolve_fee_rate(&rpc, None, confirmation_target) {
+        Ok(ResolvedFeeRate {
+            rate: fee_rate,
+            source: FeeSource::BitcoinCore,
+            ..
+        }) => {
             println!("Bitcoin Core fee estimate");
             println!("Confirmation target: {confirmation_target} blocks");
             println!("Fee rate: {} sat/vB", fee_rate.to_sat_per_vb_ceil());
         }
-        Ok(None) => {
+        Ok(_) => {
             println!("Bitcoin Core does not have enough fee history for an estimate.");
             println!("Ufunguo fallback: {DEFAULT_FEE_RATE_SAT_VB} sat/vB");
         }
@@ -450,7 +438,7 @@ fn build_psbt(
 
     println!("Unsigned PSBT created");
     println!();
-    print_psbt_summary(&psbt, &destination, amount, &resolved_fee);
+    print_psbt_summary(&wallet, &psbt, &destination, amount, &resolved_fee);
     println!();
     println!("PSBT (base64):");
     println!("{psbt}");
@@ -468,10 +456,8 @@ fn sign_psbt(
     let amount = amount_or_exit(amount_sats);
     let resolved_fee = resolve_fee_rate(manual_fee_rate, confirmation_target);
     let mut wallet = open_existing_wallet_or_exit();
-    let mut psbt = build_psbt_or_exit(&mut wallet, &destination, amount, resolved_fee.rate);
-    let wallet_keys = prompt_wallet_keys_or_exit();
-    let signed_inputs = sign_psbt_or_exit(&wallet, &mut psbt, &wallet_keys);
-    let transaction = extract_transaction_or_exit(psbt);
+    let psbt = build_psbt_or_exit(&mut wallet, &destination, amount, resolved_fee.rate);
+    let (transaction, signed_inputs) = prompt_and_sign_or_exit(&wallet, psbt);
 
     println!("Transaction signed successfully");
     println!();
@@ -479,8 +465,8 @@ fn sign_psbt(
     println!("Amount: {amount} ({amount_sats} sats)");
     println!(
         "Fee rate: {} sat/vB ({})",
-        resolved_fee.rate.to_sat_per_vb_ceil(),
-        resolved_fee.source
+        resolved_fee.sat_per_vb(),
+        resolved_fee.source.describe()
     );
     println!("Signed inputs: {signed_inputs}");
     println!("TXID: {}", transaction.compute_txid());
@@ -501,37 +487,34 @@ fn send_bitcoin(
     let destination = parse_regtest_address_or_exit(address);
     let amount = amount_or_exit(amount_sats);
     let rpc = rpc_config_or_exit();
-    let status = node_status_or_exit(&rpc);
-    ensure_regtest_node(&status.network);
+    ensure_regtest_node(&rpc);
 
     let mut wallet = open_existing_wallet_or_exit();
     println!("Synchronizing wallet before coin selection...");
-    if let Err(error) = synchronize_wallet(&mut wallet, &rpc.url, &rpc.user, &rpc.password) {
+    if let Err(error) = rpc.sync(&mut wallet) {
         exit_with_error("Failed to synchronize wallet", error);
     }
 
     let resolved_fee = resolve_fee_rate_with_rpc(manual_fee_rate, confirmation_target, &rpc);
-    let mut psbt = build_psbt_or_exit(&mut wallet, &destination, amount, resolved_fee.rate);
+    let psbt = build_psbt_or_exit(&mut wallet, &destination, amount, resolved_fee.rate);
 
     println!();
     println!("Review transaction");
     println!();
-    print_psbt_summary(&psbt, &destination, amount, &resolved_fee);
+    print_psbt_summary(&wallet, &psbt, &destination, amount, &resolved_fee);
 
     if !skip_confirmation && !confirm_broadcast() {
         println!("Transaction cancelled. Nothing was signed or broadcast.");
         return;
     }
 
-    let wallet_keys = prompt_wallet_keys_or_exit();
-    let signed_inputs = sign_psbt_or_exit(&wallet, &mut psbt, &wallet_keys);
-    let transaction = extract_transaction_or_exit(psbt);
+    let (transaction, signed_inputs) = prompt_and_sign_or_exit(&wallet, psbt);
     let local_txid = transaction.compute_txid();
 
     println!("Signed {signed_inputs} input(s).");
     println!("Broadcasting {local_txid}...");
 
-    match broadcast_transaction(&rpc.url, &rpc.user, &rpc.password, &transaction) {
+    match service::broadcast(&rpc, &transaction) {
         Ok(txid) => {
             println!();
             println!("Payment broadcast successfully");
@@ -560,7 +543,7 @@ fn broadcast_raw_transaction(raw_transaction: &str) {
     println!("Broadcasting transaction...");
     println!("Calculated TXID: {calculated_txid}");
 
-    match broadcast_transaction(&rpc.url, &rpc.user, &rpc.password, &transaction) {
+    match service::broadcast(&rpc, &transaction) {
         Ok(txid) => {
             println!();
             println!("Transaction broadcast successfully");
@@ -601,7 +584,7 @@ fn watch_transaction(txid: Txid, interval: u64) {
 
     loop {
         let mut wallet = open_existing_wallet_or_exit();
-        let report = match synchronize_wallet(&mut wallet, &rpc.url, &rpc.user, &rpc.password) {
+        let report = match rpc.sync(&mut wallet) {
             Ok(report) => report,
             Err(error) => exit_with_error("Failed to synchronize wallet", error),
         };
@@ -650,13 +633,14 @@ fn print_transaction_status(transaction: &WalletTransaction) -> bool {
 }
 
 fn print_psbt_summary(
+    wallet: &UfunguoWallet,
     psbt: &Psbt,
     destination: &Address,
     amount: Amount,
     fee_rate: &ResolvedFeeRate,
 ) {
-    let fee = match psbt.fee() {
-        Ok(fee) => fee,
+    let summary = match wallet.summarize_psbt(psbt, destination) {
+        Ok(summary) => summary,
         Err(error) => exit_with_error("Failed to calculate PSBT fee", error),
     };
 
@@ -664,28 +648,32 @@ fn print_psbt_summary(
     println!("Amount: {} BTC ({} sats)", amount.to_btc(), amount.to_sat());
     println!(
         "Fee rate: {} sat/vB ({})",
-        fee_rate.rate.to_sat_per_vb_ceil(),
-        fee_rate.source
+        fee_rate.sat_per_vb(),
+        fee_rate.source.describe()
     );
-    println!("Fee: {} BTC ({} sats)", fee.to_btc(), fee.to_sat());
-    println!("Inputs: {}", psbt.unsigned_tx.input.len());
-    println!("Outputs: {}", psbt.unsigned_tx.output.len());
+    println!(
+        "Fee: {} BTC ({} sats)",
+        summary.fee.to_btc(),
+        summary.fee.to_sat()
+    );
+    println!("Inputs: {}", summary.inputs.len());
+    println!("Outputs: {}", summary.outputs.len());
     println!();
 
     println!("Selected inputs:");
-    for (index, input) in psbt.unsigned_tx.input.iter().enumerate() {
+    for (index, input) in summary.inputs.iter().enumerate() {
         println!("  {}. {}", index + 1, input.previous_output);
     }
 
     println!();
     println!("Created outputs:");
-    for (index, output) in psbt.unsigned_tx.output.iter().enumerate() {
-        match Address::from_script(&output.script_pubkey, Network::Regtest) {
-            Ok(output_address) => {
-                let label = if output_address == *destination {
-                    "recipient"
-                } else {
-                    "change"
+    for (index, output) in summary.outputs.iter().enumerate() {
+        match &output.address {
+            Some(output_address) => {
+                let label = match output.role {
+                    OutputRole::Recipient => "recipient",
+                    OutputRole::Change => "change",
+                    OutputRole::External => "external",
                 };
                 println!(
                     "  {}. {} BTC ({} sats) -> {} [{}]",
@@ -696,7 +684,7 @@ fn print_psbt_summary(
                     label
                 );
             }
-            Err(_) => println!(
+            None => println!(
                 "  {}. {} sats -> non-address script",
                 index + 1,
                 output.value.to_sat()
@@ -723,19 +711,14 @@ fn resolve_fee_rate_with_rpc(
         return manual_fee_rate_or_exit(sat_per_vb);
     }
 
-    match estimate_fee_rate(&rpc.url, &rpc.user, &rpc.password, confirmation_target) {
-        Ok(Some(rate)) => ResolvedFeeRate {
-            rate,
-            source: "Bitcoin Core estimate",
-        },
-        Ok(None) => {
-            eprintln!(
-                "Bitcoin Core has insufficient fee history; using {DEFAULT_FEE_RATE_SAT_VB} sat/vB fallback."
-            );
-            ResolvedFeeRate {
-                rate: FeeRate::from_sat_per_vb_u32(DEFAULT_FEE_RATE_SAT_VB),
-                source: "regtest fallback",
+    match service::resolve_fee_rate(rpc, None, confirmation_target) {
+        Ok(resolved) => {
+            if resolved.source == FeeSource::RegtestFallback {
+                eprintln!(
+                    "Bitcoin Core has insufficient fee history; using {DEFAULT_FEE_RATE_SAT_VB} sat/vB fallback."
+                );
             }
+            resolved
         }
         Err(error) => {
             eprintln!("Bitcoin Core fee estimation failed: {error}");
@@ -746,14 +729,12 @@ fn resolve_fee_rate_with_rpc(
 }
 
 fn manual_fee_rate_or_exit(sat_per_vb: u32) -> ResolvedFeeRate {
-    if sat_per_vb == 0 {
-        eprintln!("Fee rate must be greater than zero.");
-        std::process::exit(1);
-    }
-
-    ResolvedFeeRate {
-        rate: FeeRate::from_sat_per_vb_u32(sat_per_vb),
-        source: "manual override",
+    match service::manual_fee_rate(u64::from(sat_per_vb)) {
+        Ok(resolved) => resolved,
+        Err(_) => {
+            eprintln!("Fee rate must be greater than zero.");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -769,35 +750,22 @@ fn build_psbt_or_exit(
     }
 }
 
-fn sign_psbt_or_exit(wallet: &UfunguoWallet, psbt: &mut Psbt, wallet_keys: &WalletKeys) -> usize {
-    match wallet.sign_psbt(psbt, wallet_keys) {
-        Ok(signed_inputs) => signed_inputs,
-        Err(error) => exit_with_error("Failed to sign PSBT", error),
-    }
-}
-
-fn extract_transaction_or_exit(psbt: Psbt) -> Transaction {
-    match psbt.extract_tx() {
-        Ok(transaction) => transaction,
-        Err(error) => exit_with_error("Failed to extract signed transaction", error),
-    }
-}
-
-fn prompt_wallet_keys_or_exit() -> WalletKeys {
+fn prompt_and_sign_or_exit(wallet: &UfunguoWallet, psbt: Psbt) -> (Transaction, usize) {
     let mut phrase = match rpassword::prompt_password("Enter recovery phrase to sign: ") {
         Ok(phrase) => phrase,
         Err(error) => exit_with_error("Failed to read recovery phrase", error),
     };
 
-    let mnemonic_result = parse_mnemonic(&phrase);
+    let result = service::sign_psbt_with_phrase(wallet, psbt, &phrase);
     phrase.zeroize();
 
-    let mnemonic = match mnemonic_result {
-        Ok(mnemonic) => mnemonic,
-        Err(error) => exit_with_error("Invalid recovery phrase", error),
-    };
-
-    derive_wallet_keys_or_exit(&mnemonic)
+    match result {
+        Ok(signed) => (signed.transaction, signed.signed_inputs),
+        Err(ServiceError::InvalidMnemonic(error)) => {
+            exit_with_error("Invalid recovery phrase", error)
+        }
+        Err(error) => exit_with_error("Failed to sign PSBT", error),
+    }
 }
 
 fn confirm_broadcast() -> bool {
@@ -829,12 +797,10 @@ fn print_status(status: &TransactionStatus) {
 }
 
 fn transaction_direction_and_amount(transaction: &WalletTransaction) -> (&'static str, Amount) {
-    if transaction.received > transaction.sent {
-        ("Incoming", transaction.received - transaction.sent)
-    } else if transaction.sent > transaction.received {
-        ("Outgoing", transaction.sent - transaction.received)
-    } else {
-        ("Self-transfer", transaction.received)
+    match transaction.direction() {
+        TransactionDirection::Incoming => ("Incoming", transaction.received - transaction.sent),
+        TransactionDirection::Outgoing => ("Outgoing", transaction.sent - transaction.received),
+        TransactionDirection::SelfTransfer => ("Self-transfer", transaction.received),
     }
 }
 
@@ -850,46 +816,33 @@ fn find_transaction_or_exit(wallet: &UfunguoWallet, txid: Txid) -> WalletTransac
 }
 
 fn amount_or_exit(amount_sats: u64) -> Amount {
-    if amount_sats == 0 {
-        eprintln!("Amount must be greater than zero.");
-        std::process::exit(1);
-    }
-    Amount::from_sat(amount_sats)
-}
-
-fn parse_regtest_address_or_exit(address: &str) -> Address {
-    let unchecked_address = match Address::from_str(address) {
-        Ok(address) => address,
-        Err(error) => exit_with_error("Invalid Bitcoin address", error),
-    };
-
-    match unchecked_address.require_network(Network::Regtest) {
-        Ok(address) => address,
-        Err(error) => exit_with_error("Address is not a regtest address", error),
-    }
-}
-
-fn open_existing_wallet_or_exit() -> UfunguoWallet {
-    match UfunguoWallet::open_existing(wallet_database(), Network::Regtest) {
-        Ok(wallet) => wallet,
-        Err(error) => {
-            eprintln!("Failed to open wallet: {error}");
-            eprintln!("Database: {}", wallet_database().display());
-            eprintln!("Create or restore this wallet first.");
+    match service::positive_amount(amount_sats) {
+        Ok(amount) => amount,
+        Err(_) => {
+            eprintln!("Amount must be greater than zero.");
             std::process::exit(1);
         }
     }
 }
 
-fn create_bip84_wallet_or_exit(wallet_keys: &WalletKeys) -> UfunguoWallet {
-    match UfunguoWallet::open_or_create(wallet_keys, wallet_database()) {
+fn parse_regtest_address_or_exit(address: &str) -> Address {
+    match service::parse_regtest_address(address) {
+        Ok(address) => address,
+        Err(ServiceError::WrongNetwork) => exit_with_error(
+            "Address is not a regtest address",
+            "address belongs to another network",
+        ),
+        Err(error) => exit_with_error("Invalid Bitcoin address", error),
+    }
+}
+
+fn open_existing_wallet_or_exit() -> UfunguoWallet {
+    match UfunguoWallet::open_existing(wallet_database(), service::NETWORK) {
         Ok(wallet) => wallet,
         Err(error) => {
-            eprintln!("Failed to open BIP84 wallet: {error}");
+            eprintln!("Failed to open wallet: {error}");
             eprintln!("Database: {}", wallet_database().display());
-            eprintln!(
-                "If this database belongs to another recovery phrase, choose a different `--database` path."
-            );
+            eprintln!("Create or restore this wallet first.");
             std::process::exit(1);
         }
     }
@@ -902,67 +855,50 @@ fn wallet_database() -> &'static Path {
         .as_path()
 }
 
-fn ensure_database_parent_exists() {
-    let Some(parent) = wallet_database().parent() else {
-        return;
-    };
-    if parent.as_os_str().is_empty() {
-        return;
-    }
-    if let Err(error) = fs::create_dir_all(parent) {
-        exit_with_error(
-            &format!("Failed to create wallet directory {}", parent.display()),
-            error,
-        );
-    }
-}
-
 fn rpc_config_or_exit() -> RpcConfig {
-    let _ = dotenvy::dotenv();
-    RpcConfig {
-        url: required_environment_variable("BITCOIN_RPC_URL"),
-        user: required_environment_variable("BITCOIN_RPC_USER"),
-        password: required_environment_variable("BITCOIN_RPC_PASSWORD"),
-    }
-}
-
-fn required_environment_variable(name: &str) -> String {
-    match env::var(name) {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!("Missing environment variable: {name}");
+    match RpcConfig::from_env() {
+        Ok(rpc) => rpc,
+        Err(error) => {
+            eprintln!("{}", capitalize(&error.to_string()));
             std::process::exit(1);
         }
     }
 }
 
+fn capitalize(message: &str) -> String {
+    let mut characters = message.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => String::new(),
+    }
+}
+
 fn node_status_or_exit(rpc: &RpcConfig) -> ufunguo_core::NodeStatus {
-    match bitcoin_node_status(&rpc.url, &rpc.user, &rpc.password) {
+    match rpc.node_status() {
         Ok(status) => status,
         Err(error) => exit_with_error("Failed to connect to Bitcoin Core", error),
     }
 }
 
-fn ensure_regtest_node(network: &str) {
-    if network != "regtest" {
-        eprintln!("Network mismatch: Ufunguo expects regtest, but Bitcoin Core uses {network}.");
-        std::process::exit(1);
+fn ensure_regtest_node(rpc: &RpcConfig) {
+    match rpc.ensure_regtest_node() {
+        Ok(_) => {}
+        Err(ServiceError::WrongNodeNetwork(network)) => {
+            eprintln!(
+                "Network mismatch: Ufunguo expects regtest, but Bitcoin Core uses {network}."
+            );
+            std::process::exit(1);
+        }
+        Err(error) => exit_with_error("Failed to connect to Bitcoin Core", error),
     }
 }
 
-fn derive_wallet_keys_or_exit(mnemonic: &bip39::Mnemonic) -> WalletKeys {
-    match WalletKeys::from_mnemonic(mnemonic, Network::Regtest) {
-        Ok(keys) => keys,
-        Err(error) => exit_with_error("Failed to derive wallet keys", error),
-    }
-}
-
-fn print_wallet_details(wallet_keys: &WalletKeys, wallet: &UfunguoWallet) {
-    println!("Network: {:?}", wallet.network());
-    println!("Master fingerprint: {}", wallet_keys.master_fingerprint());
+fn print_wallet_details(master_fingerprint: Fingerprint, first_receive_address: &Address) {
+    println!("Network: {:?}", service::NETWORK);
+    println!("Master fingerprint: {master_fingerprint}");
     println!("Receive path: {RECEIVE_PATH}");
     println!("Change path: {CHANGE_PATH}");
-    println!("First receive address: {}", wallet.receive_address_at(0));
+    println!("First receive address: {first_receive_address}");
 }
 
 fn exit_with_error(message: &str, error: impl std::fmt::Display) -> ! {

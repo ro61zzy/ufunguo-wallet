@@ -3,10 +3,15 @@ name = "ufunguo-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Exposes helpers that fabricate wallet state for tests in dependent crates.
+test-utils = []
+
 [dependencies]
 bdk_bitcoind_rpc = "0.22.0"
 bdk_wallet = { version = "3.2.0", features = ["rusqlite"] }
 bip39 = { version = "3.0.0", features = ["rand", "zeroize"] }
+dotenvy = "0.15.7"
 bitcoin = "0.32.102"
 thiserror = "2.0.21"
 zeroize = "1.9.0"
