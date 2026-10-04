@@ -1,9 +1,12 @@
 import React from 'react';
 import { StyleSheet, Switch, View } from 'react-native';
+import type { DataSource } from '../api';
 import { AppText } from '../components/AppText';
 import { Badge } from '../components/Badge';
 import { Card, Divider, SectionTitle } from '../components/Card';
 import { Icon } from '../components/Icon';
+import { Segmented } from '../components/Inputs';
+import { API_BASE_URL } from '../config';
 import { KeyValueRow, ListRow } from '../components/Rows';
 import { Screen } from '../components/Screen';
 import { useHealth } from '../hooks/wallet';
@@ -20,8 +23,13 @@ const BOUNDARIES = [
 ];
 
 export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
-  const { explainMode, setExplainMode, selectedWallet, dataSource } =
-    useAppSettings();
+  const {
+    explainMode,
+    setExplainMode,
+    selectedWallet,
+    dataSource,
+    setDataSource,
+  } = useAppSettings();
   const health = useHealth();
 
   return (
@@ -55,16 +63,23 @@ export function SettingsScreen({ navigation }: TabScreenProps<'Settings'>) {
       </Card>
 
       <SectionTitle title="Connection" />
-      <Card>
-        <KeyValueRow
-          label="Data source"
-          value={
-            <Badge
-              label={dataSource === 'api' ? 'Rust API' : 'Mock data'}
-              tone={dataSource === 'api' ? 'success' : 'warning'}
-            />
-          }
+      <Card style={styles.connection}>
+        <Segmented<DataSource>
+          accessibilityLabel="Data source"
+          value={dataSource}
+          onChange={setDataSource}
+          options={[
+            { value: 'api', label: 'Rust API', caption: 'Real wallet' },
+            { value: 'mock', label: 'Mock data', caption: 'UI development' },
+          ]}
         />
+        {dataSource === 'mock' ? (
+          <AppText variant="caption" color="warning">
+            Mock mode shows canned fixtures. Nothing reaches Rust or Bitcoin
+            Core.
+          </AppText>
+        ) : null}
+        <KeyValueRow label="API address" value={API_BASE_URL} mono />
         <KeyValueRow label="Network" value="regtest" />
         <KeyValueRow
           label="Bitcoin Core"
@@ -106,4 +121,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   boundaries: { gap: 0 },
+  connection: { gap: spacing.xs },
 });
