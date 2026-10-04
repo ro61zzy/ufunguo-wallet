@@ -89,13 +89,13 @@ export function RootNavigator() {
       <Stack.Screen
         name="CreateWallet"
         component={screens.CreateWallet}
-        options={{ title: 'New wallet' }}
+        options={{ title: '' }}
       />
       <Stack.Screen
         name="RecoveryPhrase"
         component={screens.RecoveryPhrase}
         options={{
-          title: 'Recovery phrase',
+          title: '',
           gestureEnabled: false,
           headerBackVisible: false,
         }}
@@ -103,7 +103,7 @@ export function RootNavigator() {
       <Stack.Screen
         name="RestoreWallet"
         component={screens.RestoreWallet}
-        options={{ title: 'Restore wallet' }}
+        options={{ title: '' }}
       />
       <Stack.Screen
         name="Main"
@@ -111,14 +111,22 @@ export function RootNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Group screenOptions={{ presentation: 'modal' }}>
-        <Stack.Screen name="Receive" component={screens.Receive} />
+        <Stack.Screen
+          name="Receive"
+          component={screens.Receive}
+          options={{ title: '' }}
+        />
         <Stack.Screen
           name="WalletSwitcher"
           component={screens.WalletSwitcher}
-          options={{ title: 'Wallets' }}
+          options={{ title: '' }}
         />
       </Stack.Group>
-      <Stack.Screen name="Send" component={screens.Send} />
+      <Stack.Screen
+        name="Send"
+        component={screens.Send}
+        options={{ title: '' }}
+      />
       <Stack.Screen
         name="ReviewTransaction"
         component={screens.ReviewTransaction}

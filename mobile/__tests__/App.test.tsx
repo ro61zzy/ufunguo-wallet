@@ -1,13 +1,10 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import App from '../App';
+import { renderedText } from '../test-utils/text';
 import { MockWalletRepository } from '../src/api/mock';
 
 jest.useFakeTimers();
-
-function textContent(renderer: ReactTestRenderer): string {
-  return JSON.stringify(renderer.toJSON());
-}
 
 test('shows onboarding when no wallet is selected', async () => {
   let renderer!: ReactTestRenderer;
@@ -17,7 +14,7 @@ test('shows onboarding when no wallet is selected', async () => {
   await act(async () => {
     jest.runOnlyPendingTimers();
   });
-  const text = textContent(renderer);
+  const text = renderedText(renderer);
   expect(text).toContain('Ufunguo');
   expect(text).toContain('Create a new wallet');
   expect(text).toContain('Restore from recovery phrase');

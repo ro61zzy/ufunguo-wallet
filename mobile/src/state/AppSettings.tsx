@@ -12,6 +12,7 @@ import {
   type DataSource,
   type WalletRepository,
 } from '../api';
+import { devLaunchWallet } from '../navigation/devLaunch';
 import { readPreference, writePreference } from './storage';
 
 interface AppSettings {
@@ -60,7 +61,7 @@ export function AppSettingsProvider({
       if (cancelled) {
         return;
       }
-      setSelectedWallet(wallet);
+      setSelectedWallet(devLaunchWallet() ?? wallet);
       setExplainModeState(explain !== 'false');
       if (
         !initialRepository &&
