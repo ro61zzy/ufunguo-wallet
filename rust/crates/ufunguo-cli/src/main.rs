@@ -539,7 +539,10 @@ fn send_bitcoin(
             println!("Status: Unconfirmed");
             println!();
             println!("Track it with:");
-            println!("  ufunguo wallet status {txid} --watch");
+            println!(
+                "  ufunguo --database {} wallet status {txid} --watch",
+                wallet_database().display()
+            );
         }
         Err(error) => exit_with_error("Failed to broadcast transaction", error),
     }
