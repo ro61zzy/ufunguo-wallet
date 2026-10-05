@@ -50,7 +50,11 @@ export function WalletSwitcherScreen({
       {wallets.isPending ? (
         <LoadingState label="Looking for wallets…" />
       ) : wallets.isError ? (
-        <ErrorState error={wallets.error} onRetry={() => wallets.refetch()} />
+        <ErrorState
+          error={wallets.error}
+          onRetry={() => wallets.refetch()}
+          retrying={wallets.isFetching}
+        />
       ) : wallets.data.length === 0 ? (
         <EmptyState
           icon="wallet"

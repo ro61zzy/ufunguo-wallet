@@ -9,7 +9,12 @@ import { Button } from '../components/Button';
 import { Card, Divider, SectionTitle } from '../components/Card';
 import { ExplainCard, ExplainText } from '../components/ExplainCard';
 import { Icon } from '../components/Icon';
-import { TextField } from '../components/Inputs';
+import {
+  emptyPhrase,
+  filledWordCount,
+  phraseToString,
+  RecoveryPhraseInput,
+} from '../components/RecoveryPhraseInput';
 import { AmountRow, KeyValueRow } from '../components/Rows';
 import { Screen } from '../components/Screen';
 import { ErrorState } from '../components/StateViews';
@@ -187,7 +192,7 @@ export function ReviewTransactionScreen({
   const [step, setStep] = useState<Step>('review');
   // The recovery phrase lives only in this component's state. It is never
   // put in navigation params, query caches, storage or logs.
-  const [mnemonic, setMnemonic] = useState('');
+  const [words, setWords] = useState<string[]>(emptyPhrase);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
   const remaining = useCountdown(preview.expiresInSeconds);
@@ -197,22 +202,21 @@ export function ReviewTransactionScreen({
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => {
       if (state !== 'active') {
-        setMnemonic('');
+        setWords(emptyPhrase());
       }
     });
     return () => subscription.remove();
   }, []);
 
-  const wordCount =
-    mnemonic.trim() === '' ? 0 : mnemonic.trim().split(/\s+/).length;
+  const wordCount = filledWordCount(words);
   const change = preview.outputs.find(o => o.role === 'change');
 
   const signAndBroadcast = async () => {
     if (!selectedWallet) {
       return;
     }
-    const phrase = mnemonic;
-    setMnemonic('');
+    const phrase = phraseToString(words);
+    setWords(emptyPhrase());
     setSending(true);
     setSendError(null);
     try {
@@ -255,6 +259,7 @@ export function ReviewTransactionScreen({
           label="Sign locally and broadcast"
           onPress={signAndBroadcast}
           loading={sending}
+          loadingLabel="Signing and broadcasting…"
           disabled={expired || wordCount < 12}
           accessibilityHint="Signs this exact transaction in Rust and sends it to Bitcoin Core"
           testID="review-sign"
@@ -262,8 +267,9 @@ export function ReviewTransactionScreen({
         <Button
           label="Back to review"
           variant="ghost"
+          disabled={sending}
           onPress={() => {
-            setMnemonic('');
+            setWords(emptyPhrase());
             setStep('review');
           }}
         />
@@ -388,19 +394,11 @@ export function ReviewTransactionScreen({
       {step === 'sign' ? (
         <Card style={styles.signCard}>
           <SectionTitle title="Sign with your recovery phrase" />
-          <TextField
-            label="Recovery phrase"
-            placeholder="12 words separated by spaces"
-            value={mnemonic}
-            onChangeText={setMnemonic}
-            secureTextEntry
-            autoCapitalize="none"
-            autoComplete="off"
-            textContentType="none"
-            importantForAutofill="no"
-            contextMenuHidden
-            hint={`${wordCount} of 12 words entered`}
-            testID="review-mnemonic"
+          <RecoveryPhraseInput
+            value={words}
+            onChange={setWords}
+            hiddenByDefault
+            testIDPrefix="review-word"
           />
           <View style={styles.devNote}>
             <Icon name="info" size={18} color={colors.warning} />

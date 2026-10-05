@@ -107,12 +107,14 @@ export function RecoveryPhraseScreen({
               label="Generate my recovery phrase"
               onPress={generate}
               loading={creating}
+              loadingLabel="Generating phrase…"
               testID="phrase-generate"
             />
             <Button
               label="Back"
               variant="ghost"
               onPress={() => navigation.goBack()}
+              disabled={creating}
             />
           </>
         }

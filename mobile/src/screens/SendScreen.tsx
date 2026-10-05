@@ -129,6 +129,7 @@ export function SendScreen({ navigation }: RootScreenProps<'Send'>) {
           label="Review transaction"
           onPress={submit}
           loading={preview.isPending}
+          loadingLabel="Building transaction…"
           accessibilityHint="Asks Rust to select coins and build an unsigned transaction for review"
           testID="send-review"
         />

@@ -115,7 +115,7 @@ test('review shows the transaction anatomy before anything is signed', async () 
   expect(text).toContain('Absolute fee');
   expect(text).toContain('1 in · 2 out');
   // No phrase field until the user explicitly confirms the review.
-  expect(queryByTestId(renderer, 'review-mnemonic')).toHaveLength(0);
+  expect(queryByTestId(renderer, 'review-word-1')).toHaveLength(0);
   expect(send).not.toHaveBeenCalled();
   await act(async () => renderer.unmount());
 });
@@ -132,10 +132,12 @@ test('signing requires explicit confirmation and clears the phrase', async () =>
   const renderer = await renderReview(repository, preview);
 
   await act(async () => byTestId(renderer, 'review-confirm').props.onPress());
-  const input = byTestId(renderer, 'review-mnemonic');
-  expect(input.props.secureTextEntry).toBe(true);
+  const first = byTestId(renderer, 'review-word-1');
+  expect(first.props.secureTextEntry).toBe(true);
 
-  await act(async () => input.props.onChangeText(PHRASE));
+  // Pasting the whole phrase into one box fills all twelve.
+  await act(async () => first.props.onChangeText(PHRASE));
+  expect(byTestId(renderer, 'review-word-12').props.value).toBe('about');
   // Fire without awaiting: the mock's latency resolves when flush() runs timers.
   await act(async () => {
     byTestId(renderer, 'review-sign').props.onPress();
@@ -149,6 +151,6 @@ test('signing requires explicit confirmation and clears the phrase', async () =>
   expect(text).toContain('What just happened?');
   expect(text).toContain('Confirmation timeline');
   expect(text).not.toContain('abandon');
-  expect(queryByTestId(renderer, 'review-mnemonic')).toHaveLength(0);
+  expect(queryByTestId(renderer, 'review-word-1')).toHaveLength(0);
   await act(async () => renderer.unmount());
 });

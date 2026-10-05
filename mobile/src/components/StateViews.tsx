@@ -61,10 +61,13 @@ export function EmptyState({
 export function ErrorState({
   error,
   onRetry,
+  retrying = false,
   title = 'Something went wrong',
 }: {
   error: unknown;
   onRetry?: () => void;
+  /** True while the retry is in flight. */
+  retrying?: boolean;
   title?: string;
 }) {
   return (
@@ -82,6 +85,8 @@ export function ErrorState({
       {onRetry ? (
         <Button
           label="Try again"
+          loadingLabel="Retrying…"
+          loading={retrying}
           variant="secondary"
           compact
           onPress={onRetry}

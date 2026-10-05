@@ -130,7 +130,13 @@ function UtxosSection({ wallet }: { wallet: string }) {
     return <LoadingState label="Loading UTXOs…" />;
   }
   if (utxos.isError) {
-    return <ErrorState error={utxos.error} onRetry={() => utxos.refetch()} />;
+    return (
+      <ErrorState
+        error={utxos.error}
+        onRetry={() => utxos.refetch()}
+        retrying={utxos.isFetching}
+      />
+    );
   }
   const total = utxos.data.reduce((sum, u) => sum + u.valueSats, 0);
   return (
@@ -509,6 +515,7 @@ export function LabScreen({ navigation }: TabScreenProps<'Lab'>) {
           <ErrorState
             error={addresses.error}
             onRetry={() => addresses.refetch()}
+            retrying={addresses.isFetching}
           />
         ) : (
           <AddressesSection

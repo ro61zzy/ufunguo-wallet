@@ -78,6 +78,7 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
               : 'Could not load wallet'
           }
           onRetry={() => overview.refetch()}
+          retrying={overview.isFetching}
         />
       ) : null}
 
@@ -175,6 +176,7 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
             label="Sync"
             icon={<Icon name="refresh" size={18} />}
             loading={sync.isPending}
+            loadingLabel="Syncing…"
             onPress={() => sync.mutate()}
             accessibilityHint="Asks Bitcoin Core for new blocks and mempool transactions"
           />

@@ -49,6 +49,7 @@ export function ActivityScreen({ navigation }: TabScreenProps<'Activity'>) {
         <ErrorState
           error={transactions.error}
           onRetry={() => transactions.refetch()}
+          retrying={transactions.isFetching}
         />
       ) : items.length === 0 ? (
         <EmptyState

@@ -32,9 +32,10 @@ export const explain = {
   afterCreate:
     'Rust generated 128 bits of secure randomness and encoded it as a 12-word BIP39 recovery phrase. From that phrase, it derived a BIP32 master key and created two BIP84 keychains: one for receiving bitcoin and another for change. The SQLite wallet stores the public descriptors and wallet state—not the recovery phrase.',
 
-  afterRestore:
-    'Rust checked every word against the BIP39 English word list and verified the phrase’s checksum. It then derived the same master key and rebuilt the same BIP84 wallet. This works because Bitcoin key derivation is deterministic: the same recovery phrase and network settings produce the same wallet.',
-
+ afterRestore:
+  'Rust validated the BIP39 recovery phrase and derived its master key and BIP84 descriptors. Because derivation is deterministic, the same phrase and network settings produce the same keys and addresses.',
+afterReopen:
+  'Rust validated the recovery phrase, derived its BIP84 descriptors and confirmed that they match the wallet already stored in this SQLite file. Ufunguo then reopened the existing wallet state.',
   afterReceive:
     'Rust revealed the next address from the external receive keychain. BDK advanced the derivation index and saved it in SQLite, preventing the wallet from repeatedly presenting the same address.',
 

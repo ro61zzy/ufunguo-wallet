@@ -17,7 +17,10 @@ interface ButtonProps {
   onPress: () => void;
   variant?: Variant;
   icon?: React.ReactNode;
+  /** Shows a spinner and blocks presses while work is in progress. */
   loading?: boolean;
+  /** Label shown while loading, e.g. "Syncing…". Defaults to `label`. */
+  loadingLabel?: string;
   disabled?: boolean;
   accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
@@ -38,6 +41,7 @@ export function Button({
   variant = 'primary',
   icon,
   loading = false,
+  loadingLabel,
   disabled = false,
   accessibilityHint,
   style,
@@ -52,7 +56,7 @@ export function Button({
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={loading ? loadingLabel ?? label : label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: inactive, busy: loading }}
       disabled={inactive}
@@ -66,20 +70,25 @@ export function Button({
             ? BACKGROUND[variant].pressed
             : BACKGROUND[variant].idle,
         },
-        inactive && styles.inactive,
+        // A busy button stays at full strength so it reads as "working",
+        // not as unavailable; only disabled buttons fade.
+        disabled && !loading && styles.inactive,
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator color={colors.ink} />
-      ) : (
-        <View style={styles.content}>
-          {icon}
-          <AppText variant="bodyStrong" color={textColor}>
-            {label}
-          </AppText>
-        </View>
-      )}
+      <View style={styles.content}>
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={variant === 'danger' ? colors.danger : colors.ink}
+          />
+        ) : (
+          icon
+        )}
+        <AppText variant="bodyStrong" color={textColor}>
+          {loading ? loadingLabel ?? label : label}
+        </AppText>
+      </View>
     </Pressable>
   );
 }

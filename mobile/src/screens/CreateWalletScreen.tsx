@@ -45,11 +45,7 @@ export function CreateWalletScreen({
       subtitle="Choose a local name to help you identify this wallet."
       edges={['left', 'right', 'bottom']}
       footer={
-        <Button
-          label="Create wallet"
-          onPress={next}
-          testID="create-continue"
-        />
+        <Button label="Create wallet" onPress={next} testID="create-continue" />
       }
     >
       <TextField

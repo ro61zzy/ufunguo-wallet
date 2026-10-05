@@ -91,6 +91,7 @@ export function ReceiveScreen({ navigation }: RootScreenProps<'Receive'>) {
           variant="secondary"
           icon={<Icon name="plus" size={20} />}
           loading={reveal.isPending}
+          loadingLabel="Revealing address…"
           onPress={() => reveal.mutate()}
           accessibilityHint="Reveals the next address index from your receive keychain"
         />
@@ -100,9 +101,14 @@ export function ReceiveScreen({ navigation }: RootScreenProps<'Receive'>) {
         <ErrorState
           error={addresses.error}
           onRetry={() => addresses.refetch()}
+          retrying={addresses.isFetching}
         />
       ) : reveal.isError ? (
-        <ErrorState error={reveal.error} onRetry={() => reveal.mutate()} />
+        <ErrorState
+          error={reveal.error}
+          onRetry={() => reveal.mutate()}
+          retrying={reveal.isPending}
+        />
       ) : !shown ? (
         <LoadingState label="Asking Rust for a fresh address…" />
       ) : (

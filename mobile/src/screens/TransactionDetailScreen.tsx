@@ -123,7 +123,11 @@ export function TransactionDetailScreen({
   if (query.isError || !tx) {
     return (
       <Screen showRegtest={false} edges={['left', 'right']}>
-        <ErrorState error={query.error} onRetry={() => query.refetch()} />
+        <ErrorState
+          error={query.error}
+          onRetry={() => query.refetch()}
+          retrying={query.isFetching}
+        />
       </Screen>
     );
   }
