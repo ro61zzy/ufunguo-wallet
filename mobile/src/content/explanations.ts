@@ -1,70 +1,79 @@
-// Explain Mode copy, kept in one place so it can be reviewed for accuracy.
-// Every statement here should describe what the Rust wallet actually does.
+// Explain Mode copy.
+// Plain-language explanations of what the Rust wallet actually does.
 
 export const explain = {
   onboarding: [
     {
       key: 'non-custodial',
-      title: 'You hold the key',
-      body: 'Ufunguo is non-custodial. Nobody else can move your bitcoin, and nobody can recover it for you. “Ufunguo” means “key” in Swahili.',
+      title: 'Your keys, your bitcoin',
+      body:
+        'Ufunguo is designed as a non-custodial wallet: you control the recovery phrase used to authorize payments. “Ufunguo” means “key” in Swahili.',
     },
     {
       key: 'phrase',
-      title: 'Twelve words control the wallet',
-      body: 'A 12-word recovery phrase (BIP39) is turned into a master key. Every address the wallet will ever use is derived from it, so whoever has the words has the bitcoin.',
+      title: 'One secret creates the whole wallet',
+      body:
+        'Your 12-word recovery phrase represents a BIP39 secret. Rust uses it to derive the master key and every receive and change key used by the wallet.',
     },
     {
       key: 'utxo',
-      title: 'Coins, not an account balance',
-      body: 'Bitcoin has no account balances. Your wallet owns separate unspent outputs (UTXOs) — like notes in a purse — and your balance is their sum.',
+      title: 'Bitcoin is not an account balance',
+      body:
+        'A wallet tracks separate spendable outputs called UTXOs. Think of them like notes in a purse: your displayed balance is the total value of the outputs you can spend.',
     },
     {
       key: 'regtest',
-      title: 'Practice money only',
-      body: 'This version runs on regtest, a private test chain on your computer. The coins have no value, so you can experiment safely.',
+      title: 'A safe Bitcoin laboratory',
+      body:
+        'This capstone runs on regtest, a private Bitcoin network created with Polar. Its coins have no real value, so you can create, send, mine and inspect transactions safely.',
     },
   ],
 
   afterCreate:
-    'Rust generated 128 bits of randomness, encoded them as 12 BIP39 words, derived a BIP32 master key and created BIP84 receive and change descriptors. Only the public descriptors were saved to SQLite — the words were not.',
+    'Rust generated 128 bits of secure randomness and encoded it as a 12-word BIP39 recovery phrase. From that phrase, it derived a BIP32 master key and created two BIP84 keychains: one for receiving bitcoin and another for change. The SQLite wallet stores the public descriptors and wallet state—not the recovery phrase.',
 
   afterRestore:
-    'Rust validated the words against the BIP39 word list and checksum, derived the same master key and rebuilt the same BIP84 descriptors. Because derivation is deterministic, the same words always produce the same addresses.',
+    'Rust checked every word against the BIP39 English word list and verified the phrase’s checksum. It then derived the same master key and rebuilt the same BIP84 wallet. This works because Bitcoin key derivation is deterministic: the same recovery phrase and network settings produce the same wallet.',
 
   afterReceive:
-    'Ufunguo revealed the next address from your external BIP84 keychain and saved the new derivation index in SQLite.',
+    'Rust revealed the next address from the external receive keychain. BDK advanced the derivation index and saved it in SQLite, preventing the wallet from repeatedly presenting the same address.',
 
   afterSync:
-    'Ufunguo asked Bitcoin Core for new blocks and mempool transactions, then BDK matched transaction outputs against your wallet descriptors.',
+    'Rust connected to Bitcoin Core and requested blocks added since the wallet’s last known checkpoint, followed by current mempool transactions. BDK compared their scripts with scripts derived from the wallet descriptors and recorded any matches.',
 
   afterSend:
-    'Ufunguo selected UTXOs, created a recipient output and a change output, built a PSBT, signed the owned inputs locally and sent the finalized transaction to Bitcoin Core.',
+    'Rust synchronized the wallet, selected sufficient UTXOs and created recipient and change outputs. It packaged the transaction as a PSBT, signed the inputs controlled by this wallet, finalized it and asked Bitcoin Core to broadcast it.',
 
   freshAddress:
-    'Using a new address for every payment makes it harder for observers to link your payments together. All of these addresses belong to the same wallet.',
+    'This address comes from the wallet’s external BIP84 keychain. Using a fresh address for each payment improves privacy by making separate payments harder to associate. The addresses still belong to the same recovery phrase.',
 
-  fees: 'Miners prioritise transactions that pay more satoshis per virtual byte (sat/vB). The absolute fee is fee rate × transaction size. Regtest has no real fee market, so Ufunguo falls back to 2 sat/vB when Bitcoin Core has no estimate.',
+  fees:
+    'Transaction fees are measured using satoshis per virtual byte (sat/vB). The final fee depends on both the selected fee rate and the transaction’s virtual size. Regtest has no active fee market, so Ufunguo uses a 2 sat/vB fallback when Bitcoin Core cannot provide an estimate.',
 
   change:
-    'A UTXO must be spent in full. Whatever is left after paying the recipient and the miner comes back to you as a new output on your internal (change) keychain.',
+    'A UTXO cannot be partially spent. The transaction consumes it completely, pays the recipient, deducts the mining fee and returns the remainder to a new address from the wallet’s internal change keychain.',
 
-  psbt: 'A PSBT (Partially Signed Bitcoin Transaction, BIP174) is an unsigned transaction plus the information a signer needs: the coins being spent and their derivation paths. It can be inspected before anything is signed.',
+  psbt:
+    'A PSBT—Partially Signed Bitcoin Transaction—is a standard format defined by BIP174. It combines a transaction with the metadata signers need, allowing its inputs, outputs, amount, fee and change to be reviewed before broadcasting.',
 
   signing:
-    'Signing proves you control the coins being spent. Rust re-derives your keys from the recovery phrase, signs each owned input, finalizes the witness data and then discards the keys.',
+    'A digital signature proves that the wallet controls an input without revealing its private key. Rust derives the required signing keys from the recovery phrase, signs each wallet-owned input and adds the resulting witness data to the transaction.',
 
   mempool:
-    'Once broadcast, the transaction waits in Bitcoin Core’s mempool. It is valid but not yet in a block, so it has 0 confirmations.',
+    'Bitcoin Core accepted the transaction and placed it in its mempool: the waiting area for valid transactions that have not entered a block. At this point it is unconfirmed and has zero confirmations.',
 
   confirmations:
-    'Each block mined on top of the one containing your transaction adds a confirmation. More confirmations make reversal increasingly unlikely. On regtest you mine blocks yourself in Polar.',
+    'The first confirmation arrives when a miner includes the transaction in a block. Every block added after it increases the confirmation count and makes reversing the payment progressively more difficult. On regtest, we mine these blocks ourselves using Polar.',
 
   derivation:
-    'BIP84 paths read m / purpose’ / coin’ / account’ / chain / index. 84’ means native SegWit, 1’ means a test network, chain 0 is receive and chain 1 is change.',
+    'Ufunguo follows the BIP84 path m/84’/1’/0’/chain/index. The 84’ selects native SegWit, 1’ identifies a test network, chain 0 generates receive addresses and chain 1 generates change addresses.',
 
   walletState:
-    'The SQLite file stores public descriptors, revealed indices, the last synchronized block and transactions BDK found. Delete it and you can rebuild everything from the recovery phrase plus a rescan.',
+    'SQLite stores the wallet’s public descriptors, revealed address indices, blockchain checkpoint and discovered transactions. This allows Ufunguo to close and reopen without forgetting its state. The recovery phrase can rebuild the wallet, but it must rescan the chain to rediscover its transaction history.',
 
   multiWallet:
-    'Each wallet is a separate SQLite file with its own recovery phrase. This is a convenience for demos on one machine, not user accounts.',
+    'For this demonstration, each wallet is represented by a separate SQLite file with its own descriptors and recovery phrase. This lets us demonstrate payments between multiple independent wallets without pretending they are user accounts.',
+
+  developmentBridge:
+    'This mobile interface communicates with a Rust service running locally on the same development machine. It is a regtest-only bridge for demonstrating the Rust wallet core—not a production server. Never enter a real recovery phrase into this build.',
 } as const;
