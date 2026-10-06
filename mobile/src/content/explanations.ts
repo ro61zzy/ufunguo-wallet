@@ -51,9 +51,8 @@ afterReopen:
   fees:
     'Transaction fees are measured using satoshis per virtual byte (sat/vB). The final fee depends on both the selected fee rate and the transaction’s virtual size. Regtest has no active fee market, so Ufunguo uses a 2 sat/vB fallback when Bitcoin Core cannot provide an estimate.',
 
-  change:
-    'A UTXO cannot be partially spent. The transaction consumes it completely, pays the recipient, deducts the mining fee and returns the remainder to a new address from the wallet’s internal change keychain.',
-
+change:
+  'Bitcoin spends a UTXO in full. If it is larger than the payment, the transaction sends the requested amount to the recipient, pays the mining fee and returns the remainder to a new address controlled by your wallet. That returned output is called "change" and still belongs to you.',
   psbt:
     'A PSBT—Partially Signed Bitcoin Transaction—is a standard format defined by BIP174. It combines a transaction with the metadata signers need, allowing its inputs, outputs, amount, fee and change to be reviewed before broadcasting.',
 

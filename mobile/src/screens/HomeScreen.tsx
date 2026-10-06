@@ -7,7 +7,7 @@ import { Button } from '../components/Button';
 import { Card, Divider, SectionTitle } from '../components/Card';
 import { WhatJustHappened } from '../components/ExplainCard';
 import { Icon } from '../components/Icon';
-import { KeyValueRow } from '../components/Rows';
+import { KeyValueRow, ListRow } from '../components/Rows';
 import { Screen } from '../components/Screen';
 import {
   EmptyState,
@@ -255,12 +255,13 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
             {truncateMiddle(data.tipHash, 16, 12)}
           </Mono>
         ) : null}
-        <Button
-          compact
-          variant="ghost"
-          label="Explore in Bitcoin Lab"
+        <Divider />
+        <ListRow
+          title="Explore in Bitcoin Lab"
+          subtitle="See these addresses, UTXOs and paths in detail"
+          left={<Icon name="lab" size={20} color={colors.primaryPressed} />}
           onPress={() => navigation.navigate('Lab')}
-          style={styles.labLink}
+          accessibilityLabel="Explore in Bitcoin Lab"
         />
       </Card>
     </Screen>
@@ -289,5 +290,4 @@ const styles = StyleSheet.create({
   syncCard: { gap: spacing.xs },
   syncRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   syncText: { flex: 1, gap: 2 },
-  labLink: { alignSelf: 'flex-start', marginTop: spacing.xs },
 });
