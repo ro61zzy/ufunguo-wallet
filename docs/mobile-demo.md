@@ -133,9 +133,13 @@ The phrase file may hold the bare phrase or the JSON returned by `POST /api/wall
 
 ## Screenshots
 
-| Onboarding | Home | Receive | Bitcoin Lab |
-|---|---|---|---|
-| ![Onboarding](screenshots/onboarding.png) | ![Home](screenshots/home.png) | ![Receive](screenshots/receive.png) | ![Lab](screenshots/lab.png) |
+| Onboarding | Create wallet | Restore wallet |
+|---|---|---|
+| ![Onboarding](screenshots/onboarding.png) | ![Create wallet](screenshots/create-wallet.png) | ![Restore wallet](screenshots/restore-wallet.png) |
+
+| Home | Receive | Bitcoin Lab |
+|---|---|---|
+| ![Home](screenshots/home.png) | ![Receive](screenshots/receive.png) | ![Lab](screenshots/lab.png) |
 
 | Send | Transaction | Activity |
 |---|---|---|

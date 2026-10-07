@@ -23,9 +23,10 @@ Ufunguo is a transparent, non-custodial Bitcoin wallet built in Rust, with a bar
 - A mobile app (iOS first, Android compatible) with onboarding, receive/send journeys, a transaction review diagram, confirmation timelines and a **Bitcoin Lab** for addresses, UTXOs, derivation paths and PSBTs
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="200" alt="Home" />
-  <img src="docs/screenshots/lab.png" width="200" alt="Bitcoin Lab" />
-  <img src="docs/screenshots/transaction.png" width="200" alt="Transaction timeline" />
+  <img src="docs/screenshots/onboarding.png" width="180" alt="Onboarding" />
+  <img src="docs/screenshots/create-wallet.png" width="180" alt="Create wallet" />
+  <img src="docs/screenshots/restore-wallet.png" width="180" alt="Restore wallet" />
+  <img src="docs/screenshots/home.png" width="180" alt="Home" />
 </p>
 
 ## Architecture
